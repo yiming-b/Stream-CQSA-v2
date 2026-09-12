@@ -154,6 +154,8 @@ class Config:
     """One way of computing attention. mode: 'mono' | 'cqsa' | 'cqsa_dist'."""
     mode: str = "cqsa"
     itr: int = 1
+    c: int = 7                       # cyclic quorum set (c, interest_set); see autoconfig.QUORUM_SETS
+    interest_set: tuple = (0, 1, 3)
     acc: str = "gpu"                 # 'gpu' | 'cpu'  (where the accumulator lives)
     stream_from_host: bool = False   # Q/K/V resident on the host
     n_par: int = 1                   # subproblems in flight
@@ -167,7 +169,7 @@ class Config:
             return self.label
         if self.mode == "mono":
             return f"mono[{self.mono_backend}]"
-        s = f"cqsa itr={self.itr} acc={self.acc} npar={self.n_par}"
+        s = f"cqsa itr={self.itr} acc={self.acc} npar={self.n_par}" + (f" c={self.c}" if self.c != 7 else "")
         if self.stream_from_host:
             s += " host"
         if self.mode == "cqsa_dist":
@@ -207,7 +209,7 @@ def run_config(q, k, v, cfg: Config, *, causal: bool, scale: float | None = None
     else:
         qq, kk, vv = (t.to(device, non_blocking=True) for t in (q, k, v))
     shared = cfg.shared_chunks if cfg.shared_chunks is not None else (cfg.stream_from_host and cfg.itr == 1)
-    kw = dict(itr=int(cfg.itr), causal=causal, scale=scale, inner=inner,
+    kw = dict(itr=int(cfg.itr), c=int(cfg.c), interest_set=tuple(cfg.interest_set), causal=causal, scale=scale, inner=inner,
               stream_from_host=bool(cfg.stream_from_host), low_memory=(cfg.acc == "cpu"),
               accumulate_on_gpu=(cfg.acc == "gpu"), max_parallel=int(cfg.n_par),
               allow_escalation=allow_escalation, shared_chunks=bool(shared))

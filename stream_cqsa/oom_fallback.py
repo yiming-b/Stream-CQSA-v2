@@ -148,19 +148,28 @@ def attention_oom_safe(
         max_itr = max(1, max_depth_for(int(q.shape[-2])))
 
     attempts, out, cinfo = [], None, None
+    # v2: at each depth try the device accumulator first (fast), then the host
+    # accumulator (`low_memory=True`). The accumulator + output are 8 bytes per
+    # element on the device that NO depth reduces, so without this second try a
+    # budget below that floor could never be recovered at any depth.
     for depth in range(1, max_itr + 1):
-        try:
-            out, cinfo = stream_cqsa_forward(q, k, v, itr=depth, causal=causal,
-                                             scale=scale, stream_from_host=host)
+        for low_mem in (False, True):
+            try:
+                out, cinfo = stream_cqsa_forward(q, k, v, itr=depth, causal=causal,
+                                                 scale=scale, stream_from_host=host,
+                                                 low_memory=low_mem)
+                break
+            except Exception as exc:                            # noqa: BLE001
+                if not _is_oom(exc):
+                    raise
+                attempts.append((depth, "acc=cpu" if low_mem else "acc=gpu"))
+                if verbose:
+                    warnings.warn(f"itr={depth} {'acc=cpu' if low_mem else 'acc=gpu'} OOMed; "
+                                  f"trying {'acc=cpu' if not low_mem else f'itr={depth + 1}'}",
+                                  RuntimeWarning, stacklevel=2)
+                _drain()
+        if out is not None:
             break
-        except Exception as exc:                                # noqa: BLE001
-            if not _is_oom(exc):
-                raise
-            attempts.append(depth)
-            if verbose:
-                warnings.warn(f"itr={depth} also OOMed; trying itr={depth + 1}",
-                              RuntimeWarning, stacklevel=2)
-            _drain()
     if out is None:
         raise torch.cuda.OutOfMemoryError(
             f"Stream-CQSA could not fit even at itr={max_itr}. "
@@ -175,7 +184,20 @@ def attention_oom_safe(
                  "plan_reason": cinfo.get("plan_reason")})
     if return_info:
         info["lse"] = cinfo.get("lse")       # the backward needs this
-    out = out.to(device=out_device, dtype=out_dtype)
+    # The engine's fp32 output may sit on the device; casting it there needs
+    # another 0.5x of it, which under a tight budget is exactly what is missing.
+    # Move first when the caller wants it on the host; otherwise fall back to a
+    # host round-trip if the in-place cast OOMs.
+    if out_device.type == "cpu":
+        out = out.to("cpu").to(dtype=out_dtype)
+    else:
+        try:
+            out = out.to(device=out_device, dtype=out_dtype)
+        except Exception as exc:                                    # noqa: BLE001
+            if not _is_oom(exc):
+                raise
+            _drain()
+            out = out.to("cpu").to(dtype=out_dtype).to(out_device)
     return (out, info) if return_info else out
 
 

@@ -72,13 +72,17 @@ md("""
 ## 2. The OOM boundary, and the drop-in recovery
 
 `attention_oom_safe` runs the normal SDPA path and falls back to Stream-CQSA only when
-it raises out-of-memory. Under a 2 GiB cap a 1M-token call cannot hold Q/K/V + workspace on the
-device; the fallback streams them from the host and returns the exact result.
+it raises out-of-memory. Under a 2 GiB cap a 512K-token call cannot hold Q/K/V + workspace on the
+device; the fallback streams them from the host (`release_inputs=True` lets it move device inputs
+out), tries each depth with the accumulator on the device and then in host memory, and returns the
+exact result. Deep depths carry a Python-side setup cost (the task list is built per subproblem,
+~0.25 s each at 512K, so itr=3 = 343 tasks costs a minute before the first kernel runs); the planner
+and `auto_attention` avoid that by preferring a larger quorum set at a lower depth.
 """)
 code("""
-N = 1_048_576
-q, k, v = make_qkv(N)                      # host-resident (3 GiB fp16)
-cap(4.0)                                   # a 4 GiB device: Q/K/V + output + workspace do not fit
+N = 524_288
+q, k, v = make_qkv(N)                      # host-resident (1.5 GiB fp16)
+cap(2.0)                                   # a 2 GiB device: Q/K/V + output + workspace do not fit
 held = []
 try:
     for t in (q, k, v):
@@ -89,7 +93,7 @@ except torch.cuda.OutOfMemoryError as e:
     print("SDPA under the cap: OutOfMemoryError ->", str(e)[:60], "...")
 held.clear(); gc.collect(); torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
 t0 = time.perf_counter()
-out = attention_oom_safe(q, k, v, causal=True)          # same signature and dtype as SDPA
+out = attention_oom_safe(q, k, v, causal=True, release_inputs=True)   # same signature and dtype as SDPA
 torch.cuda.synchronize()
 print(f"attention_oom_safe: {time.perf_counter()-t0:.1f} s, peak {torch.cuda.max_memory_allocated()/2**30:.2f} GiB, "
       f"out {tuple(out.shape)} {out.dtype}, rel.err vs float64 {fp64_error(out, q, k, v):.1e}")
@@ -188,17 +192,17 @@ for spec in [{"cuda:0": "40GiB", "host": "256GiB"},
 """)
 code("""
 # Calibrate the cost model on this GPU (~1 min), then let auto_attention plan and run under a cap.
-cm = calibrate(hw, N=131072)
-cap(3.0)
-q, k, v = make_qkv(1_048_576)
-out, p = auto_attention(q, k, v, causal=True, hardware=hardware_from_dict({"cuda:0": "3GiB", "host": "256GiB"}), model=cm, verbose=True, allow_escalation=False)
+cm = calibrate(hw, N=65536)
+cap(2.0)
+q, k, v = make_qkv(524_288)
+out, p = auto_attention(q, k, v, causal=True, hardware=hardware_from_dict({"cuda:0": "2GiB", "host": "256GiB"}), model=cm, verbose=True, allow_escalation=False)
 torch.cuda.synchronize()
 print(f"-> ran {p.name()}: peak {torch.cuda.max_memory_allocated()/2**30:.2f} GiB, rel.err {fp64_error(out, q, k, v):.1e}")
 del out; cap(40.0)
 """)
 code("""
 # autotune: measure the top candidates instead of trusting the model (use when the call will be repeated)
-p = autotune(N=262_144, hardware=hardware_from_dict({"cuda:0": "40GiB", "host": "256GiB"}), verbose=True)
+p = autotune(N=131_072, hardware=hardware_from_dict({"cuda:0": "40GiB", "host": "256GiB"}), max_candidates=4, verbose=True)
 print("autotune ->", p.name())
 """)
 
