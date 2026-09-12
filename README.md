@@ -9,6 +9,19 @@ rule of its own: it reproduces whatever kernel it wraps.
 Paper (v1): [arXiv:2604.20819](https://arxiv.org/abs/2604.20819) ·
 v1 repo: [yiming-b/Stream-CQSA](https://github.com/yiming-b/Stream-CQSA)
 
+## How it works
+
+![Stream-CQSA: data movement in the forward and backward](docs/stream_cqsa_demo.gif)
+
+Q/K/V live in host memory in 7 chunks. Each of the 7 subproblems gathers 3 chunks
+(its owner chunk and two quorum partners) to the device, runs the CQS kernel on
+them, and hands back a partial result: `(out_i, lse_i)` in the forward, which are
+merged into a host accumulator with the same max-shifted arithmetic FlashAttention
+uses inside one kernel; `(dq_i, dk_i, dv_i)` in the backward, computed against
+the *global* log-sum-exp and scatter-added into host gradient buffers. Only one
+subproblem's inputs and partial result are on the device at a time, and every
+kept query–key pair is counted exactly once, so the result is exact.
+
 ## What is new in v2
 
 | area | v2 |
@@ -22,22 +35,40 @@ v1 repo: [yiming-b/Stream-CQSA](https://github.com/yiming-b/Stream-CQSA)
 | **Triton kernels (no build)** | `stream_cqsa.triton_kernel`: forward AND backward CQS kernels in Triton with the CUDA kernels' contract, selected automatically when no extension is compiled (`CQSA_BACKWARD=triton` forces the backward). Forward: 0.75–0.91x the CUDA kernel at L=56K (faster), within 13% at 899K; non-causal it beats FlashAttention-2 itself on the same L. Backward: 0.77x the CUDA CQS backward at L=56K, engine backward at 1M 29 s vs 39 s. Engine forward at 1M: 1.15x the CUDA path (`docs/LOG.md`, Phase 4) |
 | **adapters** | `stream_cqsa.adapters`: automatic conversion of FlexAttention-expressible kernels (ALiBi, windows, soft-cap, document masks) into inner kernels, with global-position remapping |
 
-## Install (from source; the extension is compiled for your GPU)
+## Install
+
+The package runs with **no compilation**: the CQS forward and backward kernels are
+also implemented in Triton (shipped with PyTorch), and the engine uses them
+whenever the CUDA extension is absent.
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu130   # match your CUDA
-pip install ninja flash-attn                                            # flash-attn: the monolithic baseline
 git clone https://github.com/yiming-b/Stream-CQSA-v2.git && cd Stream-CQSA-v2
+pip install -e . --no-build-isolation --no-deps --config-settings=--build-option=--skip-ext 2>/dev/null \
+  || PYTHONPATH=$PWD python -c "import stream_cqsa"                       # or just put the checkout on PYTHONPATH
+pip install flash-attn                                                  # optional: the monolithic fast path
+```
+
+That is enough for everything in this README. The Triton kernels are as fast as
+or faster than the CUDA ones for subproblems up to ~100K tokens and within
+10–15% beyond (forward); the Triton backward is the fastest one in the package.
+Triton compiles each kernel configuration on first use (a few seconds, cached).
+
+**Optional CUDA extension** (buys 10–15% on the forward at 1M tokens and up;
+40–75 min of nvcc on 8 cores):
+
+```bash
+pip install ninja
 CQSA_KERNEL_SET=common pip install -e . --no-build-isolation             # fp16+bf16, head dims 64/128, sm80
 ```
 
-**No build at all:** `pip install -e . --no-build-isolation --no-deps` without running the extension build (or simply importing the package from a checkout) still works: the engine falls back to the Triton kernels for both the forward and the backward (Triton ships with torch). The CUDA build is optional: it buys ~10–15% on the forward at 1M, and the Triton backward is the faster one.
-
-`setup.py` builds two extensions: `cqsa_cuda` (from `csrc/`, the v11 forward,
-used for causal calls) and `cqsa_cuda_nc` (from `csrc_nc/`, the v9 forward, used
-for non-causal calls — v11's non-causal CQS-on instantiation is mis-compiled by
-ptxas, see the technical note). `CQSA_KERNEL_SET=a100_fp16_hdim64_128` builds
-fp16 only in ~40 min on 8 cores. Requires `csrc/cutlass` (vendored).
+`setup.py` builds two extensions, `cqsa_cuda` (from `csrc/`, the v11 forward,
+causal calls) and `cqsa_cuda_nc` (from `csrc_nc/`, the v9 forward, non-causal
+calls; v11's non-causal instantiation is mis-compiled by ptxas, see the
+technical note). Environment switches: `CQSA_FORWARD=triton` /
+`CQSA_BACKWARD=triton` force the Triton kernels even when the extension is
+present; `CQSA_CUDA_MODULE` / `CQSA_CUDA_MODULE_NONCAUSAL` pick extension
+modules by name.
 
 ## Use
 
@@ -60,8 +91,10 @@ itr="auto")`. Planner: `plan(N, B, H, D, dtype, causal, hardware, direction="fwd
 `quick_bench()`. Adapters: `flex_inner(score_mod, extra_mask_mod)`. Multi-device:
 `distributed.dist_stream_cqsa_forward/_backward` under `torch.distributed`.
 
-The notebook `notebooks/stream_cqsa_v2_demo.ipynb` runs every feature on one GPU,
-using a memory cap to simulate a smaller device.
+Notebooks (executed, outputs included): `notebooks/stream_cqsa_v2_demo.ipynb` runs every
+feature on one GPU; `notebooks/oom_boundary_demo.ipynb` sweeps N explicitly under a memory cap
+and shows the baseline matching Stream-CQSA below the boundary and OOM-ing above it while
+Stream-CQSA continues, exact.
 
 ## Layout
 

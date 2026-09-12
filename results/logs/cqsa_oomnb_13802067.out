@@ -1,0 +1,5 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+kernels: /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/kernel/stable/cqsa_cuda_next_v11.cpython-311-x86_64-linux-gnu.so /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/kernel/stable/cqsa_cuda_next_v9.cpython-311-x86_64-linux-gnu.so
+executed in 52 s
+wrote /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/notebooks/oom_boundary_demo.ipynb

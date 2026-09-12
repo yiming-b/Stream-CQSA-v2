@@ -46,6 +46,8 @@ unchanged. See ``tests/test_reference.py::test_sorted_gather_makes_local_triangl
 
 from __future__ import annotations
 
+import os as _os
+
 import json
 import math
 import time
@@ -1163,7 +1165,7 @@ def stream_cqsa_forward(
         device = torch.device("cuda")
         if inner is None:
             from . import interface as _iface
-            if _iface.cqsa_cuda is None:
+            if _iface.cqsa_cuda is None or _os.environ.get("CQSA_FORWARD", "").lower() == "triton":
                 from .triton_kernel import triton_inner
                 inner = triton_inner
         inner = inner or local_stats_flash
@@ -1172,7 +1174,7 @@ def stream_cqsa_forward(
         inner = local_stats_flash if device.type == "cuda" else local_stats_torch
         if device.type == "cuda":
             from . import interface as _iface
-            if _iface.cqsa_cuda is None:
+            if _iface.cqsa_cuda is None or _os.environ.get("CQSA_FORWARD", "").lower() == "triton":
                 # No compiled extension: the Triton kernel is the zero-build path
                 # (same contract, ~0.7x the CUDA kernel's speed).
                 from .triton_kernel import triton_inner
