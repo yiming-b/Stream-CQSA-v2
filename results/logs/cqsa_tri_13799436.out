@@ -1,0 +1,44 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+NVIDIA A100-SXM4-80GB
+sweep BM=64 BN=64 warps=4 stages=2: 34.89 ms
+sweep BM=64 BN=64 warps=4 stages=3: 31.76 ms
+sweep BM=64 BN=64 warps=4 stages=4: 31.88 ms
+sweep BM=64 BN=64 warps=8 stages=2: 52.48 ms
+sweep BM=64 BN=64 warps=8 stages=3: 52.47 ms
+sweep BM=64 BN=64 warps=8 stages=4: 52.46 ms
+sweep BM=64 BN=128 warps=4 stages=2: 29.00 ms
+sweep BM=64 BN=128 warps=4 stages=3: 28.92 ms
+sweep BM=64 BN=128 warps=4 stages=4: 29.01 ms
+sweep BM=64 BN=128 warps=8 stages=2: 39.94 ms
+sweep BM=64 BN=128 warps=8 stages=3: 39.92 ms
+sweep BM=64 BN=128 warps=8 stages=4: 39.93 ms
+sweep BM=128 BN=64 warps=4 stages=2: 25.73 ms
+sweep BM=128 BN=64 warps=4 stages=3: 25.51 ms
+sweep BM=128 BN=64 warps=4 stages=4: 25.58 ms
+sweep BM=128 BN=64 warps=8 stages=2: 36.83 ms
+sweep BM=128 BN=64 warps=8 stages=3: 36.82 ms
+sweep BM=128 BN=64 warps=8 stages=4: 36.81 ms
+sweep BM=128 BN=128 warps=4 stages=2: 32.39 ms
+sweep BM=128 BN=128 warps=4 stages=3: 33.63 ms
+sweep BM=128 BN=128 warps=4 stages=4: 34.45 ms
+sweep BM=128 BN=128 warps=8 stages=2: 36.70 ms
+sweep BM=128 BN=128 warps=8 stages=3: 36.70 ms
+sweep BM=128 BN=128 warps=8 stages=4: 36.72 ms
+best: (25.507020568847658, {'block_m': 128, 'block_n': 64, 'num_warps': 4, 'num_stages': 3})
+N=  16384 L=  7023 causal=1: fa2    0.47  triton plain    0.50  triton CQS    0.84  native CQS    1.40   triton/native 0.60
+N=  32768 L= 14044 causal=1: fa2    1.44  triton plain    1.66  triton CQS    2.37  native CQS    3.40   triton/native 0.70
+N=  65536 L= 28088 causal=1: fa2    5.08  triton plain    5.78  triton CQS    7.62  native CQS    8.13   triton/native 0.94
+N= 131072 L= 56175 causal=1: fa2   16.96  triton plain   19.44  triton CQS   25.46  native CQS   24.63   triton/native 1.03
+N=  16384 L=  7023 causal=0: fa2    0.70  triton plain    0.75  triton CQS    0.97  native CQS    2.27   triton/native 0.43
+N=  32768 L= 14044 causal=0: fa2    2.40  triton plain    2.92  triton CQS    3.58  native CQS    5.68   triton/native 0.63
+N=  65536 L= 28088 causal=0: fa2    8.88  triton plain    9.66  triton CQS   11.73  native CQS   15.06   triton/native 0.78
+N= 131072 L= 56175 causal=0: fa2   34.15  triton plain   37.31  triton CQS   44.29  native CQS   48.76   triton/native 0.91
+engine N=  262144 acc=gpu device inputs  inner=native:    0.53 s  (vs native engine rel 0.0e+00)
+engine N=  262144 acc=gpu device inputs  inner=triton:    0.69 s  (vs native engine rel 2.2e-04)
+engine N=  262144 acc=cpu host inputs    inner=native:    0.91 s  (vs native engine rel 0.0e+00)
+engine N=  262144 acc=cpu host inputs    inner=triton:    1.29 s  (vs native engine rel 2.2e-04)
+engine N= 1048576 acc=gpu device inputs  inner=native:    7.81 s  (vs native engine rel 0.0e+00)
+engine N= 1048576 acc=gpu device inputs  inner=triton:   10.94 s  (vs native engine rel 2.5e-04)
+engine N= 1048576 acc=cpu host inputs    inner=native:    9.53 s  (vs native engine rel 0.0e+00)
+engine N= 1048576 acc=cpu host inputs    inner=triton:   13.27 s  (vs native engine rel 2.5e-04)

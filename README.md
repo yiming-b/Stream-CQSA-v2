@@ -19,6 +19,7 @@ v1 repo: [yiming-b/Stream-CQSA](https://github.com/yiming-b/Stream-CQSA)
 | **automatic configuration** | `stream_cqsa.autoconfig`: monolithic vs decomposed, depth `itr`, quorum set `(c, interest_set)`, accumulator placement, host residency, concurrency and device count chosen from a hardware description and a calibratable cost model |
 | **independent fwd/bwd** | the backward plans its own decomposition depth (`bwd_itr="auto"`) |
 | **developer kit** | `stream_cqsa.devkit`: plug any inner kernel into the framework and get exactness (bit-identical / within rounding / not) and performance against its monolithic call; `quick_bench` sweeps |
+| **Triton kernel (no build)** | `stream_cqsa.triton_kernel`: the CQS forward kernel in Triton with the same contract as the CUDA one; selected automatically when no extension is compiled. Faster than the CUDA kernel below L≈56K, at parity there, ~1.4x slower end to end at 1M (`docs/LOG.md`, Phase 4) |
 | **adapters** | `stream_cqsa.adapters`: automatic conversion of FlexAttention-expressible kernels (ALiBi, windows, soft-cap, document masks) into inner kernels, with global-position remapping |
 
 ## Install (from source; the extension is compiled for your GPU)
@@ -29,6 +30,8 @@ pip install ninja flash-attn                                            # flash-
 git clone https://github.com/yiming-b/Stream-CQSA-v2.git && cd Stream-CQSA-v2
 CQSA_KERNEL_SET=common pip install -e . --no-build-isolation             # fp16+bf16, head dims 64/128, sm80
 ```
+
+**No build at all:** `pip install -e . --no-build-isolation --no-deps` without running the extension build (or simply importing the package from a checkout) still works: the engine falls back to the Triton kernel for the forward (Triton ships with torch). The CUDA build is only needed for the fastest forward and for the backward.
 
 `setup.py` builds two extensions: `cqsa_cuda` (from `csrc/`, the v11 forward,
 used for causal calls) and `cqsa_cuda_nc` (from `csrc_nc/`, the v9 forward, used

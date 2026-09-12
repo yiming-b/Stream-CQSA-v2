@@ -76,3 +76,15 @@ def test_backward_depth_independent():
     g2 = q.grad.clone(); q.grad = None
     stream_cqsa_attn(q, k, v, causal=True, itr=1, bwd_itr="auto").float().sum().backward()
     assert ((q.grad - g2).float().norm() / g2.float().norm()).item() < 2e-3
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
+def test_triton_inner_exact():
+    pytest.importorskip("triton")
+    from stream_cqsa.devkit import compare_kernels
+    from stream_cqsa.triton_kernel import triton_inner, triton_attention
+    rep = compare_kernels(triton_inner, N=16384, itr=1, reps=1, acc_rows=64, verbose=False)
+    assert rep.verdict.startswith(("bit-identical", "exact"))
+    q, k, v = (torch.randn(1, 4, 4096, 64, device="cuda", dtype=torch.float16) for _ in range(3))
+    ref = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
+    assert ((triton_attention(q, k, v, causal=True).float() - ref.float()).norm() / ref.float().norm()).item() < 1e-3

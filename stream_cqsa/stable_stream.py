@@ -1161,12 +1161,28 @@ def stream_cqsa_forward(
                 "CUDA tensors to use the pure-torch fallback"
             )
         device = torch.device("cuda")
+        if inner is None:
+            from . import interface as _iface
+            if _iface.cqsa_cuda is None:
+                from .triton_kernel import triton_inner
+                inner = triton_inner
         inner = inner or local_stats_flash
 
     if inner is None:
         inner = local_stats_flash if device.type == "cuda" else local_stats_torch
+        if device.type == "cuda":
+            from . import interface as _iface
+            if _iface.cqsa_cuda is None:
+                # No compiled extension: the Triton kernel is the zero-build path
+                # (same contract, ~0.7x the CUDA kernel's speed).
+                from .triton_kernel import triton_inner
+                inner = triton_inner
     if trace is None:
         trace = TraceRecorder(enabled=False, device=device)
+    # shared_chunks hands the inner kernel a segmented chunk-pool view; only the
+    # CUDA kernel addresses it, so any other inner kernel gets plain gathers.
+    if shared_chunks and inner is not local_stats_flash:
+        shared_chunks = False
 
     plan_reason = None
     if isinstance(itr, str):
