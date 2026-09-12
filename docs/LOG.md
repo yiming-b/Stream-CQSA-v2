@@ -872,3 +872,19 @@ The run table (`live_runs`: per row block, the runs of key blocks that are not f
 The CQS overhead over the Triton plain path fell from +27-31% to +3-15% (causal) and became negative for non-causal (the skipped 22% of tiles now pay: the Triton CQS non-causal kernel is faster than FlashAttention-2 on the same L). Against the native CUDA kernel: faster below L~112K causal and at every L non-causal (0.75-0.80x), within 2-13% above. Engine end to end: 256K acc=GPU 0.59 s vs 0.53 native (1.11x), 1M acc=GPU 8.95 vs 7.81 (1.15x), 1M acc=CPU/host 11.2 vs 9.5 (1.18x, native has shared_chunks). The 16K row (1.17x) is the run-table build + launch overhead on a 1.4 ms kernel.
 
 Triton backward (first version, per-tile `if`; job 13799718): 1.10-1.15x the CUDA backward causal, 1.41-1.44x non-causal at L=7K-56K; engine backward at 1M itr=1: 45.5 s vs 39.2 s CUDA (1.16x), max rel 1.2e-3 (fp16 dq atomics order + fp16 rounding). The live-run version of the backward (both kernels) is validated (2e-5..3e-4 vs CUDA on all patterns) and its benchmark is job 13799930.
+
+### Triton backward with live-run iteration (job 13799930, A100-SXM4-80GB)
+
+| N | L | causal | FA-2 bwd (CUDA) | CUDA CQS bwd | Triton CQS bwd | Triton / CUDA |
+|---|---|---|---|---|---|---|
+| 16K | 7K | yes | 1.06 | 2.13 | 3.45 | 1.61 |
+| 32K | 14K | yes | 3.30 | 6.83 | 6.63 | 0.97 |
+| 64K | 28K | yes | 11.80 | 23.43 | 19.04 | 0.81 |
+| 131K | 56K | yes | 44.08 | 88.50 | **68.11** | **0.77** |
+| 16K | 7K | no | 1.77 | 2.56 | 4.35 | 1.70 |
+| 64K | 28K | no | 22.99 | 33.20 | 35.26 | 1.06 |
+| 131K | 56K | no | 88.57 | 127.86 | 131.51 | 1.03 |
+
+Engine backward, itr=1 acc=GPU: 256K **1.87 s vs 2.48 s** CUDA (0.75x), 1M **29.0 s vs 39.1 s** (0.74x); gradients agree to 4e-4 / 1.2e-3 (fp16 rounding; the CUDA backward's dq uses fp32 atomics, the Triton one is deterministic). The CUDA CQS backward is 2x FA-2's backward at every L (it was never re-tuned in this work), so the Triton backward is now the fastest backward in the package. Small L (7K) pays the run-table build and the two launches (1.6-1.7x).
+
+**Phase 4 summary.** A complete zero-build path: `stream_cqsa.triton_kernel` (forward + backward, same contracts as the CUDA kernels, live-run iteration over the non-masked tiles). Selected automatically when the extension is absent (`CQSA_BACKWARD=triton` forces the backward with the extension present). Forward: 0.75-0.91x the CUDA kernel at L=56K, 1.02-1.13x causal at 112K-899K, 0.80x non-causal at every L; backward 0.74-0.77x the CUDA backward from 28K up. Exact within fp16 rounding everywhere (fp32 references and the CUDA kernels). Pushed to the v2 repo (commits 4ca2fe7, e5df86d).

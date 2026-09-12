@@ -1,0 +1,15 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+NVIDIA A100-SXM4-80GB
+N=  16384 L=  7023 causal=1: FA-2 bwd    1.06  CUDA CQS bwd    2.13  Triton CQS bwd    3.45 (best tile    3.45)  triton/cuda 1.61
+N=  32768 L= 14044 causal=1: FA-2 bwd    3.30  CUDA CQS bwd    6.83  Triton CQS bwd    6.63 (best tile    6.69)  triton/cuda 0.97
+N=  65536 L= 28088 causal=1: FA-2 bwd   11.80  CUDA CQS bwd   23.43  Triton CQS bwd   19.04 (best tile   18.97)  triton/cuda 0.81
+N= 131072 L= 56175 causal=1: FA-2 bwd   44.08  CUDA CQS bwd   88.50  Triton CQS bwd   68.11 (best tile   68.01)  triton/cuda 0.77
+N=  16384 L=  7023 causal=0: FA-2 bwd    1.77  CUDA CQS bwd    2.56  Triton CQS bwd    4.35 (best tile    4.28)  triton/cuda 1.70
+N=  32768 L= 14044 causal=0: FA-2 bwd    6.20  CUDA CQS bwd    8.92  Triton CQS bwd   10.85 (best tile   10.81)  triton/cuda 1.22
+N=  65536 L= 28088 causal=0: FA-2 bwd   22.99  CUDA CQS bwd   33.20  Triton CQS bwd   35.26 (best tile   35.27)  triton/cuda 1.06
+N= 131072 L= 56175 causal=0: FA-2 bwd   88.57  CUDA CQS bwd  127.86  Triton CQS bwd  131.51 (best tile  131.43)  triton/cuda 1.03
+engine backward N=  262144 itr=1 acc=gpu cuda  :    2.48 s  (max rel vs cuda 0.0e+00)
+engine backward N=  262144 itr=1 acc=gpu triton:    1.87 s  (max rel vs cuda 4.3e-04)
+engine backward N= 1048576 itr=1 acc=gpu cuda  :   39.12 s  (max rel vs cuda 0.0e+00)
+engine backward N= 1048576 itr=1 acc=gpu triton:   28.98 s  (max rel vs cuda 1.2e-03)
