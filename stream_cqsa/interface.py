@@ -370,6 +370,12 @@ def flash_attn_bwd_cqs_global_lse(
     path), which consumes dNum/dDen and therefore needs ``Den = exp(lse)`` --
     infinite above ``lse ~= 88.7`` in fp32, silently zeroing the gradients.
     """
+    if cqsa_cuda is None or _os.environ.get("CQSA_BACKWARD", "").lower() == "triton":
+        # Zero-build path: the Triton backward (same global-lse contract).
+        from .triton_kernel import cqs_attention_backward
+        return cqs_attention_backward(dout, q, k, v, softmax_lse, cqs_group_bits, causal=causal,
+                                      scale=float(softmax_scale), delta=dsoftmax_sum, out=out,
+                                      blk_or=cqs_blk_or, blk_and=cqs_blk_and, blk_size=int(cqs_blk_size))
     cuda_ext = _require_cqsa_cuda()
     if dsoftmax_sum is not None:
         # With dsoftmax_sum supplied, the preprocess pass is skipped and O is

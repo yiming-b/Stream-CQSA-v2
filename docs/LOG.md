@@ -838,3 +838,37 @@ Block-size sweep at L=56K causal: best BLOCK_M=128, BLOCK_N=64, 4 warps, 3 stage
 | 131K | 56K | no | 34.15 | 37.31 | 44.29 | 48.76 | 0.91 |
 
 The Triton kernel's plain path is within 15% of FA-2, and with CQS on it is **faster than the native kernel below L=56K and at parity there** (the native kernel's mixed-tile path is what hurts it at small L; in Triton the per-element AND is cheap). Engine end to end (same job): 256K acc=GPU 0.69 s vs 0.53 s native (1.30x), 1M acc=GPU 10.9 vs 7.8 s (1.40x), 1M acc=CPU/host 13.3 vs 9.5 s (1.39x; the native arm also has shared_chunks). Outputs 2.2-2.5e-4 from the native engine (fp16 P rounding order), exact within rounding. The engine gap at 1M is larger than the kernel gap at 131K; a kernel-level run at L=449K/899K is queued (job below) to see whether the Triton kernel loses ground at long L.
+
+### Triton kernel at long L (job 13799637, A100-SXM4-80GB): the per-tile `if` costs the software pipeline
+
+| N | L | causal | FA-2 | Triton plain | Triton CQS | native CQS | Triton/native |
+|---|---|---|---|---|---|---|---|
+| 256K | 112K | yes | 67.4 | 75.3 | 97.9 | 83.6 | 1.17 |
+| 1M | 449K | yes | 1086 | 1231 | 1569 | 1155 | 1.36 |
+| 2M | 899K | yes | 4429 | 5025 | 6285 | 4499 | 1.40 |
+| 1M | 449K | no | 2200 | 2398 | 2889 | 2683 | 1.08 |
+
+The Triton plain path stays within 13% of FA-2 at every L, but the CQS path costs 27-31% over the plain path at every L, whereas the native v11 kernel's CQS path costs ~0-6% over its plain path at long L (22% masked tiles skipped ~ verdict overhead). Reason: wrapping the tile body in a scalar `if not masked` puts the K/V loads inside a conditional region, which Triton's software pipeliner cannot prefetch across, so the CQS loop runs unpipelined (`num_stages` is effectively 1). Fix in progress: iterate over *live runs* of key blocks (a per-row-block run table built on the host from the summaries, O(#distinct bit patterns x blocks)), so the inner loop has no verdict and pipelines exactly like the plain path -- the Triton counterpart of v11's live-tile loop.
+
+Triton backward (`cqs_attention_backward`, two deterministic kernels dK/dV and dQ, global-lse form, `delta` accepted from the engine): vs the CUDA backward on real/zero/all-masked/random/half, causal and not, ragged, hdim 128, bf16: rel 2e-5..3e-4 (fp16 rounding); same error as the CUDA backward against an fp32 autograd reference to two digits (3.1e-4/3.1e-4/2.9e-4). Engine: `CQSA_BACKWARD=triton` or a missing extension routes `flash_attn_bwd_cqs_global_lse` to it; itr=1 and itr=2/host/acc=cpu agree with the CUDA backward to 3e-4; a fully extension-free autograd pass (Triton fwd + Triton bwd) agrees with the native one to 3e-4. Benchmark job 13799718 queued.
+
+### Triton forward with live-run iteration (jobs 13799779 / 13799780, A100-SXM4-80GB)
+
+The run table (`live_runs`: per row block, the runs of key blocks that are not fully masked, built from the summaries per distinct row word) removes the fully-masked tiles from the loop, so the tile body carries no `masked` conditional and Triton pipelines the K/V loads (`num_stages=3`) as in the plain kernel. Same validation set as before: exact within rounding, incl. multi-run patterns (itr=2 bits, stripes). ms/call, real bits:
+
+| N | L | causal | FA-2 (CUDA) | Triton plain | Triton CQS | native CQS | Triton / native |
+|---|---|---|---|---|---|---|---|
+| 16K | 7K | yes | 0.42 | 0.46 | 1.48 | 1.27 | 1.17 |
+| 32K | 14K | yes | 1.31 | 1.49 | 2.57 | 3.09 | 0.83 |
+| 64K | 28K | yes | 4.58 | 5.26 | 6.89 | 8.05 | 0.86 |
+| 131K | 56K | yes | 16.93 | 19.50 | 22.47 | 24.68 | **0.91** |
+| 256K | 112K | yes | 72.5 | 75.1 | 84.9 | 83.4 | 1.02 |
+| 1M | 449K | yes | 1090 | 1233 | 1274 | 1153 | 1.10 |
+| 2M | 899K | yes | 4411 | 5000 | 5042 | 4456 | 1.13 |
+| 131K | 56K | no | 34.14 | 37.34 | 36.42 | 48.81 | **0.75** |
+| 1M | 449K | no | 2192 | 2390 | **2153** | 2686 | 0.80 |
+| 2M | 899K | no | 9015 | 9862 | **8587** | 10698 | 0.80 |
+
+The CQS overhead over the Triton plain path fell from +27-31% to +3-15% (causal) and became negative for non-causal (the skipped 22% of tiles now pay: the Triton CQS non-causal kernel is faster than FlashAttention-2 on the same L). Against the native CUDA kernel: faster below L~112K causal and at every L non-causal (0.75-0.80x), within 2-13% above. Engine end to end: 256K acc=GPU 0.59 s vs 0.53 native (1.11x), 1M acc=GPU 8.95 vs 7.81 (1.15x), 1M acc=CPU/host 11.2 vs 9.5 (1.18x, native has shared_chunks). The 16K row (1.17x) is the run-table build + launch overhead on a 1.4 ms kernel.
+
+Triton backward (first version, per-tile `if`; job 13799718): 1.10-1.15x the CUDA backward causal, 1.41-1.44x non-causal at L=7K-56K; engine backward at 1M itr=1: 45.5 s vs 39.2 s CUDA (1.16x), max rel 1.2e-3 (fp16 dq atomics order + fp16 rounding). The live-run version of the backward (both kernels) is validated (2e-5..3e-4 vs CUDA on all patterns) and its benchmark is job 13799930.

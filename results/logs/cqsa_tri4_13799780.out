@@ -1,0 +1,8 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+N=  262144 L= 112348 causal=1: fa2     72.5  triton plain     75.1  triton CQS     84.9  native CQS     83.4  triton/native 1.02
+N=  262144 L= 112348 causal=0: fa2    135.4  triton plain    148.5  triton CQS    139.3  native CQS    175.7  triton/native 0.79
+N= 1048576 L= 449391 causal=1: fa2   1089.6  triton plain   1233.2  triton CQS   1273.9  native CQS   1152.9  triton/native 1.10
+N= 1048576 L= 449391 causal=0: fa2   2192.3  triton plain   2390.3  triton CQS   2153.1  native CQS   2685.7  triton/native 0.80
+N= 2097152 L= 898780 causal=1: fa2   4411.0  triton plain   4999.8  triton CQS   5042.2  native CQS   4455.8  triton/native 1.13
+N= 2097152 L= 898780 causal=0: fa2   9015.4  triton plain   9861.6  triton CQS   8586.5  native CQS  10697.9  triton/native 0.80

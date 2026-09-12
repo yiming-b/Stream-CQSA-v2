@@ -88,3 +88,21 @@ def test_triton_inner_exact():
     q, k, v = (torch.randn(1, 4, 4096, 64, device="cuda", dtype=torch.float16) for _ in range(3))
     ref = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
     assert ((triton_attention(q, k, v, causal=True).float() - ref.float()).norm() / ref.float().norm()).item() < 1e-3
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
+def test_triton_backward_matches_reference():
+    pytest.importorskip("triton")
+    from stream_cqsa.triton_kernel import cqs_attention_forward, cqs_attention_backward
+    L, H, D = 1024, 2, 64
+    q, k, v, do = (torch.randn(1, L, H, D, device="cuda", dtype=torch.float16) for _ in range(4))
+    bits = torch.randint(0, 4, (L,), device="cuda", dtype=torch.int64)
+    out, lse = cqs_attention_forward(q, k, v, bits, causal=True, scale=D ** -0.5)
+    dq, dk, dv = cqs_attention_backward(do, q, k, v, lse, bits, causal=True, scale=D ** -0.5, out=out.to(q.dtype))
+    qq, kk, vv = (t.transpose(1, 2).float().detach().requires_grad_(True) for t in (q, k, v))
+    keep = ((bits[:, None] & bits[None, :]) == 0) & torch.ones(L, L, dtype=torch.bool, device="cuda").tril()
+    s = ((qq @ kk.transpose(-1, -2)) * D ** -0.5).masked_fill(~keep, float("-inf"))
+    o = torch.nan_to_num(torch.softmax(s, -1), nan=0.0) @ vv
+    o.backward(do.transpose(1, 2).float())
+    for g, ref in ((dq, qq.grad), (dk, kk.grad), (dv, vv.grad)):
+        assert ((g.float().transpose(1, 2) - ref).norm() / ref.norm()).item() < 2e-3

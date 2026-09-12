@@ -45,7 +45,7 @@ LOG2E = 1.4426950408889634
 @triton.jit
 def _cqs_attn_fwd_kernel(
     Q, K, V, Out, Lse,
-    BITS, BLK_OR, BLK_AND,
+    BITS, BLK_OR, BLK_AND, RUN_S, RUN_E, NRUNS, MAXR,
     sm_scale_log2,            # softmax scale * log2(e)
     L, NUM_BLK,
     stride_qb, stride_ql, stride_qh, stride_qd,
@@ -107,14 +107,32 @@ def _cqs_attn_fwd_kernel(
         n_end = L
         n_diag_start = L
 
-    # ---- main loop: tiles strictly below the diagonal (no causal test) ----
-    for start_n in range(0, n_diag_start, BLOCK_N):
-        m_i, l_i, acc = _process_tile(
-            q, K, V, BITS, BLK_OR, BLK_AND, b, h, start_n, L, NUM_BLK,
-            stride_kb, stride_kl, stride_kh, stride_kd, stride_vb, stride_vl, stride_vh, stride_vd,
-            offs_m, offs_n_base, offs_d, row_bits, row_or, row_and, row_may_mask, row_clear,
-            m_i, l_i, acc, sm_scale_log2,
-            False, CQS, BLOCK_N, CQS_BLK)
+    # ---- main loop: live runs of tiles strictly below the diagonal ----
+    # The run table (built on the host from the summaries) removes the
+    # fully-masked tiles from the iteration space, so the tile body carries no
+    # `masked` conditional and Triton pipelines its K/V loads across iterations
+    # exactly as in the plain kernel. (A scalar `if` around the body would
+    # block the software pipeliner: measured +27-31% at every L.)
+    if CQS:
+        nr = tl.load(NRUNS + pid_m)
+        for i in range(0, nr):
+            rs = tl.load(RUN_S + pid_m * MAXR + i)
+            re = tl.minimum(tl.load(RUN_E + pid_m * MAXR + i), n_diag_start)
+            for start_n in range(rs, re, BLOCK_N):
+                m_i, l_i, acc = _process_tile(
+                    q, K, V, BITS, BLK_OR, BLK_AND, b, h, start_n, L, NUM_BLK,
+                    stride_kb, stride_kl, stride_kh, stride_kd, stride_vb, stride_vl, stride_vh, stride_vd,
+                    offs_m, offs_n_base, offs_d, row_bits, row_or, row_and, row_may_mask, row_clear,
+                    m_i, l_i, acc, sm_scale_log2,
+                    False, CQS, False, BLOCK_N, CQS_BLK)
+    else:
+        for start_n in range(0, n_diag_start, BLOCK_N):
+            m_i, l_i, acc = _process_tile(
+                q, K, V, BITS, BLK_OR, BLK_AND, b, h, start_n, L, NUM_BLK,
+                stride_kb, stride_kl, stride_kh, stride_kd, stride_vb, stride_vl, stride_vh, stride_vd,
+                offs_m, offs_n_base, offs_d, row_bits, row_or, row_and, row_may_mask, row_clear,
+                m_i, l_i, acc, sm_scale_log2,
+                False, CQS, False, BLOCK_N, CQS_BLK)
 
     # ---- diagonal / tail loop: causal test on ----
     for start_n in range(n_diag_start, n_end, BLOCK_N):
@@ -123,7 +141,7 @@ def _cqs_attn_fwd_kernel(
             stride_kb, stride_kl, stride_kh, stride_kd, stride_vb, stride_vl, stride_vh, stride_vd,
             offs_m, offs_n_base, offs_d, row_bits, row_or, row_and, row_may_mask, row_clear,
             m_i, l_i, acc, sm_scale_log2,
-            CAUSAL, CQS, BLOCK_N, CQS_BLK)
+            CAUSAL, CQS, True, BLOCK_N, CQS_BLK)
 
     # ---- epilogue ----
     has = l_i > 0.0
@@ -158,7 +176,7 @@ def _process_tile(
     stride_kb, stride_kl, stride_kh, stride_kd, stride_vb, stride_vl, stride_vh, stride_vd,
     offs_m, offs_n_base, offs_d, row_bits, row_or, row_and, row_may_mask, row_clear,
     m_i, l_i, acc, sm_scale_log2,
-    CAUSAL_TILE: tl.constexpr, CQS: tl.constexpr, BLOCK_N: tl.constexpr, CQS_BLK: tl.constexpr,
+    CAUSAL_TILE: tl.constexpr, CQS: tl.constexpr, CHECK_MASKED: tl.constexpr, BLOCK_N: tl.constexpr, CQS_BLK: tl.constexpr,
 ):
     offs_n = start_n + offs_n_base
     col_ok = offs_n < L
@@ -168,12 +186,15 @@ def _process_tile(
         cblk = cb0 + tl.arange(0, BLOCK_N // CQS_BLK)
         cblk_ok = cblk < NUM_BLK
         co = tl.load(BLK_OR + cblk, mask=cblk_ok, other=0)
-        ca = tl.load(BLK_AND + cblk, mask=cblk_ok, other=-1)
         col_or = tl.reduce(co, 0, _bor)
-        col_and = tl.reduce(ca, 0, _band)
-        col_full = (start_n + BLOCK_N) <= L
-        masked = row_may_mask & col_full & ((row_and & col_and) != 0)
         clear = row_clear | ((row_or & col_or) == 0)
+        if CHECK_MASKED:
+            ca = tl.load(BLK_AND + cblk, mask=cblk_ok, other=-1)
+            col_and = tl.reduce(ca, 0, _band)
+            col_full = (start_n + BLOCK_N) <= L
+            masked = row_may_mask & col_full & ((row_and & col_and) != 0)
+        else:
+            masked = False          # the run table already excluded masked tiles
     else:
         masked = False
         clear = True
@@ -203,6 +224,58 @@ def _process_tile(
         acc = tl.dot(p.to(v.dtype), v, acc)
         m_i = m_new
     return m_i, l_i, acc
+
+
+def _block_reduce(words: torch.Tensor, blk_tokens: int, cqs_blk: int, L: int, op: str):
+    """Reduce per-64-token summary words to per-(blk_tokens)-block words. [nblk_out]"""
+    per = blk_tokens // cqs_blk
+    n_out = (L + blk_tokens - 1) // blk_tokens
+    fill = 0 if op == "or" else -1
+    w = words
+    pad = n_out * per - w.numel()
+    if pad > 0:
+        w = torch.cat([w, w.new_full((pad,), fill)])
+    w = w.view(n_out, per)
+    out = w[:, 0].clone()
+    for j in range(1, per):
+        out = (out | w[:, j]) if op == "or" else (out & w[:, j])
+    return out
+
+
+def live_runs(blk_and: torch.Tensor, L: int, block_r: int, block_c: int, cqs_blk: int = 64):
+    """
+    For each row block (block_r tokens) the runs of column blocks (block_c
+    tokens) that are NOT fully masked, as token offsets: (run_s, run_e) int32
+    [R, MAXR] and n_runs int32 [R]. A tile is fully masked iff both blocks are
+    whole and (row_and & col_and) != 0 -- the same verdict as the kernels'.
+    Built per distinct row word (a handful in real subproblems), O(patterns x C).
+    """
+    dev = blk_and.device
+    R = (L + block_r - 1) // block_r
+    C = (L + block_c - 1) // block_c
+    row_and = _block_reduce(blk_and, block_r, cqs_blk, L, "and")
+    col_and = _block_reduce(blk_and, block_c, cqs_blk, L, "and")
+    row_full = (torch.arange(R, device=dev) + 1) * block_r <= L
+    col_full = (torch.arange(C, device=dev) + 1) * block_c <= L
+    row_key = torch.where(row_full, row_and, torch.zeros_like(row_and))       # a partial row block is never masked
+    uniq, inv = torch.unique(row_key, return_inverse=True)
+    starts_list, ends_list = [], []
+    maxr = 1
+    for u in uniq.tolist():
+        if u == 0:
+            starts_list.append(torch.zeros(1, dtype=torch.int32, device=dev)); ends_list.append(torch.full((1,), L, dtype=torch.int32, device=dev)); continue
+        live = ~(col_full & ((col_and & u) != 0))                              # [C] bool
+        pad = torch.zeros(1, dtype=torch.bool, device=dev)
+        d = torch.diff(torch.cat([pad, live, pad]).to(torch.int8))
+        st = torch.nonzero(d == 1).flatten(); en = torch.nonzero(d == -1).flatten()
+        starts_list.append((st * block_c).to(torch.int32)); ends_list.append(torch.clamp(en * block_c, max=L).to(torch.int32))
+        maxr = max(maxr, int(st.numel()))
+    run_s = torch.zeros(len(uniq), maxr, dtype=torch.int32, device=dev)
+    run_e = torch.zeros(len(uniq), maxr, dtype=torch.int32, device=dev)
+    n_runs = torch.zeros(len(uniq), dtype=torch.int32, device=dev)
+    for i, (st, en) in enumerate(zip(starts_list, ends_list)):
+        run_s[i, :st.numel()] = st; run_e[i, :en.numel()] = en; n_runs[i] = st.numel()
+    return run_s[inv].contiguous(), run_e[inv].contiguous(), n_runs[inv].contiguous(), maxr
 
 
 def _summaries(bits: torch.Tensor, blk: int = 64):
@@ -241,13 +314,15 @@ def cqs_attention_forward(q, k, v, group_bits=None, *, causal: bool, scale: floa
         blk_or = blk_or.to(dev, torch.int64).contiguous(); blk_and = blk_and.to(dev, torch.int64).contiguous()
         num_blk = blk_or.numel()
         assert blk_size == 64 and block_m % 64 == 0 and block_n % 64 == 0
+        run_s, run_e, n_runs, maxr = live_runs(blk_and, L, block_m, block_n, blk_size)
     else:
         bits = torch.zeros(1, dtype=torch.int64, device=dev); blk_or = bits; blk_and = bits; num_blk = 0
+        run_s = run_e = torch.zeros(1, dtype=torch.int32, device=dev); n_runs = run_s; maxr = 1
     out = torch.empty(B, L, H, D, dtype=torch.float32, device=dev)
     lse = torch.empty(B, H, L, dtype=torch.float32, device=dev)
     grid = (triton.cdiv(L, block_m), B * H)
     _cqs_attn_fwd_kernel[grid](
-        q, k, v, out, lse, bits, blk_or, blk_and,
+        q, k, v, out, lse, bits, blk_or, blk_and, run_s, run_e, n_runs, maxr,
         float(scale) * LOG2E, L, num_blk,
         q.stride(0), q.stride(1), q.stride(2), q.stride(3),
         k.stride(0), k.stride(1), k.stride(2), k.stride(3),
@@ -281,3 +356,239 @@ def triton_attention(q, k, v, *, causal: bool = False, scale: float | None = Non
     out, lse = cqs_attention_forward(qt, kt, vt, None, causal=causal, scale=scale)
     out = out.transpose(1, 2).to(q.dtype)
     return (out, lse) if return_lse else out
+
+
+# ===========================================================================
+# Backward (global-lse form): two deterministic kernels, dK/dV and dQ
+# ===========================================================================
+
+@triton.jit
+def _tile_verdict(BLK_OR, BLK_AND, start_row, start_col, L, NUM_BLK,
+                  BLOCK_R: tl.constexpr, BLOCK_C: tl.constexpr, CQS_BLK: tl.constexpr):
+    """(masked, clear) for the tile rows [start_row, +BLOCK_R) x cols [start_col, +BLOCK_C)."""
+    rblk = start_row // CQS_BLK + tl.arange(0, BLOCK_R // CQS_BLK)
+    cblk = start_col // CQS_BLK + tl.arange(0, BLOCK_C // CQS_BLK)
+    ro = tl.load(BLK_OR + rblk, mask=rblk < NUM_BLK, other=0)
+    ra = tl.load(BLK_AND + rblk, mask=rblk < NUM_BLK, other=-1)
+    co = tl.load(BLK_OR + cblk, mask=cblk < NUM_BLK, other=0)
+    ca = tl.load(BLK_AND + cblk, mask=cblk < NUM_BLK, other=-1)
+    row_or = tl.reduce(ro, 0, _bor); row_and = tl.reduce(ra, 0, _band)
+    col_or = tl.reduce(co, 0, _bor); col_and = tl.reduce(ca, 0, _band)
+    full = ((start_row + BLOCK_R) <= L) & ((start_col + BLOCK_C) <= L)
+    masked = full & ((row_and & col_and) != 0)
+    clear = (row_or & col_or) == 0
+    return masked, clear
+
+
+@triton.jit
+def _tile_clear(BLK_OR, start_row, start_col, NUM_BLK, BLOCK_R: tl.constexpr, BLOCK_C: tl.constexpr, CQS_BLK: tl.constexpr):
+    """True when no pair of the tile can be masked (OR summaries disjoint)."""
+    rblk = start_row // CQS_BLK + tl.arange(0, BLOCK_R // CQS_BLK)
+    cblk = start_col // CQS_BLK + tl.arange(0, BLOCK_C // CQS_BLK)
+    ro = tl.load(BLK_OR + rblk, mask=rblk < NUM_BLK, other=0)
+    co = tl.load(BLK_OR + cblk, mask=cblk < NUM_BLK, other=0)
+    return (tl.reduce(ro, 0, _bor) & tl.reduce(co, 0, _bor)) == 0
+
+
+@triton.jit
+def _cqs_attn_bwd_dkdv_kernel(
+    Q, K, V, DO, LSE, DELTA, DK, DV, BITS, BLK_OR, BLK_AND, RUN_S, RUN_E, NRUNS, MAXR,
+    sm_scale, L, NUM_BLK, H,
+    stride_qb, stride_ql, stride_qh, stride_qd,
+    stride_kb, stride_kl, stride_kh, stride_kd,
+    stride_vb, stride_vl, stride_vh, stride_vd,
+    stride_db, stride_dl, stride_dh, stride_dd,       # dout
+    stride_lb, stride_lh, stride_ll,                  # lse and delta share this layout [B,H,L]
+    stride_ob, stride_ol, stride_oh, stride_od,       # dk/dv output [B,L,H,D]
+    CAUSAL: tl.constexpr, CQS: tl.constexpr,
+    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_D: tl.constexpr, CQS_BLK: tl.constexpr,
+):
+    pid_n = tl.program_id(0)
+    pid_bh = tl.program_id(1)
+    b = pid_bh // H
+    h = pid_bh % H
+    start_n = pid_n * BLOCK_N
+    offs_n = start_n + tl.arange(0, BLOCK_N)
+    offs_d = tl.arange(0, BLOCK_D)
+    col_ok = offs_n < L
+    k = tl.load(K + b * stride_kb + h * stride_kh + offs_n[:, None] * stride_kl + offs_d[None, :] * stride_kd, mask=col_ok[:, None], other=0.0)
+    v = tl.load(V + b * stride_vb + h * stride_vh + offs_n[:, None] * stride_vl + offs_d[None, :] * stride_vd, mask=col_ok[:, None], other=0.0)
+    if CQS:
+        col_bits = tl.load(BITS + offs_n, mask=col_ok, other=0)
+    else:
+        col_bits = tl.zeros([BLOCK_N], dtype=tl.int64)
+    dk = tl.zeros([BLOCK_N, BLOCK_D], dtype=tl.float32)
+    dv = tl.zeros([BLOCK_N, BLOCK_D], dtype=tl.float32)
+    qk_scale = sm_scale * LOG2E_C()
+    if CAUSAL:
+        m_start = (start_n // BLOCK_M) * BLOCK_M       # first query block that can see this key block
+    else:
+        m_start = 0
+    # Live runs of query blocks for this key block (run table built on the host);
+    # the tile body has no `masked` conditional, so the loads pipeline.
+    if CQS:
+        nr = tl.load(NRUNS + pid_n)
+    else:
+        nr = 1
+    for i in range(0, nr):
+        if CQS:
+            rs = tl.maximum(tl.load(RUN_S + pid_n * MAXR + i), m_start)
+            re = tl.load(RUN_E + pid_n * MAXR + i)
+        else:
+            rs = m_start
+            re = L
+        for start_m in range(rs, re, BLOCK_M):
+            offs_m = start_m + tl.arange(0, BLOCK_M)
+            row_ok = offs_m < L
+            if CQS:
+                clear = _tile_clear(BLK_OR, start_m, start_n, NUM_BLK, BLOCK_M, BLOCK_N, CQS_BLK)
+            else:
+                clear = True
+            q = tl.load(Q + b * stride_qb + h * stride_qh + offs_m[:, None] * stride_ql + offs_d[None, :] * stride_qd, mask=row_ok[:, None], other=0.0)
+            do = tl.load(DO + b * stride_db + h * stride_dh + offs_m[:, None] * stride_dl + offs_d[None, :] * stride_dd, mask=row_ok[:, None], other=0.0)
+            lse = tl.load(LSE + b * stride_lb + h * stride_lh + offs_m * stride_ll, mask=row_ok, other=float("inf"))
+            delta = tl.load(DELTA + b * stride_lb + h * stride_lh + offs_m * stride_ll, mask=row_ok, other=0.0)
+            qk = tl.dot(q, tl.trans(k)) * qk_scale                                   # [M, N] log2 units
+            keep = row_ok[:, None] & col_ok[None, :]
+            if CAUSAL:
+                keep = keep & (offs_n[None, :] <= offs_m[:, None])
+            if CQS:
+                if not clear:
+                    row_bits = tl.load(BITS + offs_m, mask=row_ok, other=0)
+                    keep = keep & ((row_bits[:, None] & col_bits[None, :]) == 0)
+            lse_fin = lse != float("inf")
+            lse_fin = lse_fin & (lse != float("-inf"))
+            lse2 = tl.where(lse_fin, lse * LOG2E_C(), 0.0)
+            p = tl.exp2(qk - lse2[:, None])
+            p = tl.where(keep & lse_fin[:, None], p, 0.0)
+            dv += tl.dot(tl.trans(p).to(do.dtype), do)                             # [N, D]
+            dp = tl.dot(do, tl.trans(v))                                           # [M, N]
+            ds = p * (dp - delta[:, None])
+            dk += tl.dot(tl.trans(ds).to(q.dtype), q)                              # [N, D]
+    dk = dk * sm_scale
+    tl.store(DK + b * stride_ob + h * stride_oh + offs_n[:, None] * stride_ol + offs_d[None, :] * stride_od, dk.to(DK.dtype.element_ty), mask=col_ok[:, None])
+    tl.store(DV + b * stride_ob + h * stride_oh + offs_n[:, None] * stride_ol + offs_d[None, :] * stride_od, dv.to(DV.dtype.element_ty), mask=col_ok[:, None])
+
+
+@triton.jit
+def _cqs_attn_bwd_dq_kernel(
+    Q, K, V, DO, LSE, DELTA, DQ, BITS, BLK_OR, BLK_AND, RUN_S, RUN_E, NRUNS, MAXR,
+    sm_scale, L, NUM_BLK, H,
+    stride_qb, stride_ql, stride_qh, stride_qd,
+    stride_kb, stride_kl, stride_kh, stride_kd,
+    stride_vb, stride_vl, stride_vh, stride_vd,
+    stride_db, stride_dl, stride_dh, stride_dd,
+    stride_lb, stride_lh, stride_ll,
+    stride_ob, stride_ol, stride_oh, stride_od,
+    CAUSAL: tl.constexpr, CQS: tl.constexpr,
+    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_D: tl.constexpr, CQS_BLK: tl.constexpr,
+):
+    pid_m = tl.program_id(0)
+    pid_bh = tl.program_id(1)
+    b = pid_bh // H
+    h = pid_bh % H
+    start_m = pid_m * BLOCK_M
+    offs_m = start_m + tl.arange(0, BLOCK_M)
+    offs_d = tl.arange(0, BLOCK_D)
+    row_ok = offs_m < L
+    q = tl.load(Q + b * stride_qb + h * stride_qh + offs_m[:, None] * stride_ql + offs_d[None, :] * stride_qd, mask=row_ok[:, None], other=0.0)
+    do = tl.load(DO + b * stride_db + h * stride_dh + offs_m[:, None] * stride_dl + offs_d[None, :] * stride_dd, mask=row_ok[:, None], other=0.0)
+    lse = tl.load(LSE + b * stride_lb + h * stride_lh + offs_m * stride_ll, mask=row_ok, other=float("inf"))
+    delta = tl.load(DELTA + b * stride_lb + h * stride_lh + offs_m * stride_ll, mask=row_ok, other=0.0)
+    lse_fin = (lse != float("inf")) & (lse != float("-inf"))
+    lse2 = tl.where(lse_fin, lse * LOG2E_C(), 0.0)
+    if CQS:
+        row_bits = tl.load(BITS + offs_m, mask=row_ok, other=0)
+    else:
+        row_bits = tl.zeros([BLOCK_M], dtype=tl.int64)
+    dq = tl.zeros([BLOCK_M, BLOCK_D], dtype=tl.float32)
+    qk_scale = sm_scale * LOG2E_C()
+    if CAUSAL:
+        n_end = tl.minimum(start_m + BLOCK_M, L)
+    else:
+        n_end = L
+    if CQS:
+        nr = tl.load(NRUNS + pid_m)
+    else:
+        nr = 1
+    for i in range(0, nr):
+        if CQS:
+            rs = tl.load(RUN_S + pid_m * MAXR + i)
+            re = tl.minimum(tl.load(RUN_E + pid_m * MAXR + i), n_end)
+        else:
+            rs = 0
+            re = n_end
+        for start_n in range(rs, re, BLOCK_N):
+            offs_n = start_n + tl.arange(0, BLOCK_N)
+            col_ok = offs_n < L
+            if CQS:
+                clear = _tile_clear(BLK_OR, start_m, start_n, NUM_BLK, BLOCK_M, BLOCK_N, CQS_BLK)
+            else:
+                clear = True
+            k = tl.load(K + b * stride_kb + h * stride_kh + offs_n[:, None] * stride_kl + offs_d[None, :] * stride_kd, mask=col_ok[:, None], other=0.0)
+            v = tl.load(V + b * stride_vb + h * stride_vh + offs_n[:, None] * stride_vl + offs_d[None, :] * stride_vd, mask=col_ok[:, None], other=0.0)
+            qk = tl.dot(q, tl.trans(k)) * qk_scale
+            keep = row_ok[:, None] & col_ok[None, :]
+            if CAUSAL:
+                keep = keep & (offs_n[None, :] <= offs_m[:, None])
+            if CQS:
+                if not clear:
+                    col_bits = tl.load(BITS + offs_n, mask=col_ok, other=0)
+                    keep = keep & ((row_bits[:, None] & col_bits[None, :]) == 0)
+            p = tl.exp2(qk - lse2[:, None])
+            p = tl.where(keep & lse_fin[:, None], p, 0.0)
+            dp = tl.dot(do, tl.trans(v))
+            ds = p * (dp - delta[:, None])
+            dq += tl.dot(ds.to(k.dtype), k)
+    dq = dq * sm_scale
+    tl.store(DQ + b * stride_ob + h * stride_oh + offs_m[:, None] * stride_ol + offs_d[None, :] * stride_od, dq.to(DQ.dtype.element_ty), mask=row_ok[:, None])
+
+
+def cqs_attention_backward(dout, q, k, v, lse, group_bits=None, *, causal: bool, scale: float | None = None,
+                           delta=None, out=None, blk_or=None, blk_and=None, blk_size: int = 64,
+                           block_m: int = 64, block_n: int = 64, num_warps: int = 4, num_stages: int = 2):
+    """
+    Backward of one CQS subproblem in the global-lse form (the engine's contract):
+    dout/q/k/v/out [B, L, H, D], lse [B, H, L] (natural log, GLOBAL), returns
+    (dq, dk, dv) in the input dtype, [B, L, H, D]. `delta` = rowsum(dout*out)
+    [B, H, L] fp32 may be passed (the engine computes it once globally);
+    otherwise it is computed here from `out`.
+    """
+    B, L, H, D = q.shape
+    if scale is None:
+        scale = D ** -0.5
+    dev = q.device
+    if delta is None:
+        assert out is not None, "need `out` or `delta`"
+        delta = (dout.float() * out.float()).sum(-1).transpose(1, 2).contiguous()     # [B, H, L]
+    delta = delta.to(dev, torch.float32)
+    lse = lse.to(dev, torch.float32)
+    if lse.stride() != delta.stride():
+        delta = delta.contiguous(); lse = lse.contiguous()
+    cqs = group_bits is not None
+    if cqs:
+        bits = group_bits.to(dev, torch.int64).contiguous()
+        if blk_or is None or blk_and is None:
+            blk_or, blk_and = _summaries(bits, blk_size)
+        blk_or = blk_or.to(dev, torch.int64).contiguous(); blk_and = blk_and.to(dev, torch.int64).contiguous()
+        num_blk = blk_or.numel()
+        assert blk_size == 64 and block_m % 64 == 0 and block_n % 64 == 0
+    else:
+        bits = torch.zeros(1, dtype=torch.int64, device=dev); blk_or = bits; blk_and = bits; num_blk = 0
+    dq = torch.empty_like(q); dk = torch.empty_like(k); dv = torch.empty_like(v)
+    if cqs:
+        q_rs, q_re, q_nr, q_maxr = live_runs(blk_and, L, block_m, block_n, blk_size)   # per query block: key runs
+        k_rs, k_re, k_nr, k_maxr = live_runs(blk_and, L, block_n, block_m, blk_size)   # per key block: query runs
+    else:
+        z = torch.zeros(1, dtype=torch.int32, device=dev)
+        q_rs = q_re = q_nr = k_rs = k_re = k_nr = z; q_maxr = k_maxr = 1
+    common = dict(CAUSAL=bool(causal), CQS=cqs, BLOCK_M=block_m, BLOCK_N=block_n, BLOCK_D=D, CQS_BLK=64,
+                  num_warps=num_warps, num_stages=num_stages)
+    st = lambda t: (t.stride(0), t.stride(1), t.stride(2), t.stride(3))
+    _cqs_attn_bwd_dkdv_kernel[(triton.cdiv(L, block_n), B * H)](
+        q, k, v, dout, lse, delta, dk, dv, bits, blk_or, blk_and, k_rs, k_re, k_nr, k_maxr, float(scale), L, num_blk, H,
+        *st(q), *st(k), *st(v), *st(dout), lse.stride(0), lse.stride(1), lse.stride(2), *st(dk), **common)
+    _cqs_attn_bwd_dq_kernel[(triton.cdiv(L, block_m), B * H)](
+        q, k, v, dout, lse, delta, dq, bits, blk_or, blk_and, q_rs, q_re, q_nr, q_maxr, float(scale), L, num_blk, H,
+        *st(q), *st(k), *st(v), *st(dout), lse.stride(0), lse.stride(1), lse.stride(2), *st(dq), **common)
+    return dq, dk, dv
