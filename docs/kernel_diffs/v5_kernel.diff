@@ -1,0 +1,80 @@
+--- next/kernel/v4/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 22:28:52.816457000 -0400
++++ next/kernel/v5/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 23:17:02.813120000 -0400
+@@ -340,9 +340,9 @@
+         // instance; mask.h measured the same change at 7x on the backward.
+         /*blk_or=*/nullptr, /*blk_and=*/nullptr,
+         /*blk_size=*/0, /*num_blocks=*/0);
+-    // next/ v4: row half of the tile verdicts, once per CTA.
+-    const FLASH_NAMESPACE::CqsRowSummary cqs_rs = FLASH_NAMESPACE::cqs_row_summary(
+-        params.cqs_blk_or, params.cqs_blk_and, params.cqs_blk_size, params.cqs_num_blocks,
++    // next/ v4: row half of the tile verdicts, once per CTA (v5: compile-time block size).
++    const FLASH_NAMESPACE::CqsRowSummary cqs_rs = FLASH_NAMESPACE::cqs_row_summary_c(
++        params.cqs_blk_or, params.cqs_blk_and, params.cqs_num_blocks,
+         m_block * kBlockM, kBlockM, binfo.actual_seqlen_q);
+ 
+     // For performance reason, we separate out two kinds of iterations:
+@@ -362,10 +362,11 @@
+         // taken by every thread or none. Safe to write sCqsBits here: the
+         // previous iteration's readers are behind its second __syncthreads,
+         // and the barrier just below publishes these writes before apply_mask.
++        const FLASH_NAMESPACE::CqsColSummary cqs_cs_m = FLASH_NAMESPACE::cqs_col_summary_c(
++            params.cqs_blk_or, params.cqs_blk_and, params.cqs_num_blocks,
++            n_block * kBlockN, kBlockN, binfo.actual_seqlen_k);
+         const int cqs_ts = !params.cqs_enabled ? 0
+-            : (FLASH_NAMESPACE::cqs_tile_clear_rs(cqs_rs,
+-                   params.cqs_blk_or, params.cqs_blk_size, params.cqs_num_blocks,
+-                   n_block * kBlockN, kBlockN) ? 0 : 1);
++            : (FLASH_NAMESPACE::cqs_tile_clear_c(cqs_rs, cqs_cs_m, params.cqs_blk_or) ? 0 : 1);
+         if (cqs_ts == 1) {
+             for (int t = tidx; t < kBlockN; t += Kernel_traits::kNThreads) {
+                 const int c = n_block * kBlockN + t;
+@@ -459,7 +460,15 @@
+     }
+ 
+     // These are the iterations where we don't need masking on S
+-    for (; n_block >= n_block_min; --n_block) {
++    // next/ v5: column half of the verdicts for the first steady tile; inside
++    // the loop the next tile's is fetched one iteration ahead (cqs_cs_next) and
++    // rotated in by the loop increment, so `continue` cannot skip the rotation.
++    FLASH_NAMESPACE::CqsColSummary cqs_cs = (params.cqs_enabled && n_block >= n_block_min)
++        ? FLASH_NAMESPACE::cqs_col_summary_c(params.cqs_blk_or, params.cqs_blk_and, params.cqs_num_blocks,
++                                             n_block * kBlockN, kBlockN, binfo.actual_seqlen_k)
++        : FLASH_NAMESPACE::CqsColSummary{0, 0, false};
++    FLASH_NAMESPACE::CqsColSummary cqs_cs_next = FLASH_NAMESPACE::CqsColSummary{0, 0, false};
++    for (; n_block >= n_block_min; --n_block, cqs_cs = cqs_cs_next) {
+         // A block every one of whose pairs is CQS-masked contributes nothing, so
+         // its QK^T and PV GEMMs are pure waste -- the same reasoning by which
+         // causal masking skips whole upper-triangle blocks. The smem pipeline is
+@@ -469,13 +478,15 @@
+         // Only this loop does it: the masking loop above owns the Is_first=true
+         // softmax initialisation and must always run.
+         const bool cqs_skip_block = params.cqs_enabled
+-            && FLASH_NAMESPACE::cqs_tile_masked_rs(cqs_rs,
+-                       params.cqs_blk_and, params.cqs_blk_size, params.cqs_num_blocks,
+-                       n_block * kBlockN, kBlockN, binfo.actual_seqlen_k);
++            && FLASH_NAMESPACE::cqs_tile_masked_c(cqs_rs, cqs_cs);
+         const int cqs_ts = (!params.cqs_enabled || cqs_skip_block) ? 0
+-            : (FLASH_NAMESPACE::cqs_tile_clear_rs(cqs_rs,
+-                   params.cqs_blk_or, params.cqs_blk_size, params.cqs_num_blocks,
+-                   n_block * kBlockN, kBlockN) ? 0 : 1);
++            : (FLASH_NAMESPACE::cqs_tile_clear_c(cqs_rs, cqs_cs, params.cqs_blk_or) ? 0 : 1);
++        // Issue the next tile's summary loads now; they are consumed at the K
++        // prefetch below and at the top of the next iteration, far from here.
++        cqs_cs_next = (params.cqs_enabled && n_block > n_block_min)
++            ? FLASH_NAMESPACE::cqs_col_summary_c(params.cqs_blk_or, params.cqs_blk_and, params.cqs_num_blocks,
++                                                 (n_block - 1) * kBlockN, kBlockN, binfo.actual_seqlen_k)
++            : FLASH_NAMESPACE::CqsColSummary{0, 0, false};
+ 
+         Tensor acc_s = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_M, MMA_N)
+         clear(acc_s);
+@@ -515,9 +526,7 @@
+             // Same verdict function the next iteration will evaluate, so the
+             // prefetch and the consumer always agree.
+             const bool cqs_next_skip = params.cqs_enabled
+-                && FLASH_NAMESPACE::cqs_tile_masked_rs(cqs_rs,
+-                       params.cqs_blk_and, params.cqs_blk_size, params.cqs_num_blocks,
+-                       (n_block - 1) * kBlockN, kBlockN, binfo.actual_seqlen_k);
++                && FLASH_NAMESPACE::cqs_tile_masked_c(cqs_rs, cqs_cs_next);
+             if (!cqs_next_skip) {
+                 FLASH_NAMESPACE::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, seg_k(n_block - 1), tKsK, tKVcKV, tKVpKV);
+                 // This cp_async_fence needs to be in the if block, otherwise the synchronization

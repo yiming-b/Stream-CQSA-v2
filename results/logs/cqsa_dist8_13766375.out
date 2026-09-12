@@ -1,0 +1,28 @@
+nodes: della-l09g2 della-l09g3   master: della-l09g2
+[rank 7/8] device 3 NVIDIA A100-SXM4-80GB[rank 6/8] device 2 NVIDIA A100-SXM4-80GB
+
+[rank 5/8] device 1 NVIDIA A100-SXM4-80GB[rank 4/8] device 0 NVIDIA A100-SXM4-80GB
+
+[rank 0/8] device 0 NVIDIA A100-SXM4-80GB
+[rank 1/8] device 1 NVIDIA A100-SXM4-80GB
+[rank 2/8] device 2 NVIDIA A100-SXM4-80GB
+[rank 3/8] device 3 NVIDIA A100-SXM4-80GB
+[rank 1 01:00:57] fwd N=2097152 itr=2: entering distributed forward
+[rank 7 01:00:57] fwd N=2097152 itr=2: entering distributed forward
+[rank 0 01:00:57] fwd N=2097152 itr=2: entering distributed forward
+[rank 2 01:00:57] fwd N=2097152 itr=2: entering distributed forward
+[rank 3 01:00:57] fwd N=2097152 itr=2: entering distributed forward
+[rank 4 01:00:57] fwd N=2097152 itr=2: entering distributed forward
+[rank 6 01:00:57] fwd N=2097152 itr=2: entering distributed forward
+[rank 5 01:00:57] fwd N=2097152 itr=2: entering distributed forward
+N= 2097152 itr=2 world=8  single   55.83s  dist   11.78s  speedup 4.74x  (local 10.43s + merge 0.70s)  rel.err 6.53e-08  lse.err 9.54e-07  tasks/rank 7
+[rank 1 01:03:32] fwd N=4194304 itr=2: entering distributed forward
+[rank 2 01:03:32] fwd N=4194304 itr=2: entering distributed forward
+[rank 7 01:03:32] fwd N=4194304 itr=2: entering distributed forward
+[rank 3 01:03:33] fwd N=4194304 itr=2: entering distributed forward
+[rank 4 01:03:33] fwd N=4194304 itr=2: entering distributed forward
+[rank 5 01:03:33] fwd N=4194304 itr=2: entering distributed forward
+[rank 6 01:03:33] fwd N=4194304 itr=2: entering distributed forward
+[rank 0 01:04:28] fwd N=4194304 itr=2: entering distributed forward
+N= 4194304 itr=2 world=8  single  206.10s  dist   40.42s  speedup 5.10x  (local 34.16s + merge 4.97s)  rel.err 6.46e-08  lse.err 1.91e-06  tasks/rank 7
+wrote /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/distributed/../logs/dist_test_w8_itr2_gpu.json

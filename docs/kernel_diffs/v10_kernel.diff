@@ -1,0 +1,53 @@
+--- next/kernel/v7/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 23:34:52.691459000 -0400
++++ next/kernel/v10/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-12 01:20:20.750775000 -0400
+@@ -57,8 +57,13 @@
+ }
+ 
+ 
+-template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, bool Is_cqs, typename Params>
++template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, int Cqs_mode, typename Params>
+ inline __device__ void compute_attn_1rowblock(const Params &params, const int bidb, const int bidh, const int m_block) {
++    // next/ v10: Cqs_mode 0 = CQS off at compile time, 1 = on at compile time,
++    // 2 = runtime flag. Modes 0/1 fold every CQS branch below; mode 2 keeps
++    // them as runtime branches (used for the non-causal CQS-on case, whose
++    // compile-time-on instantiation mis-compiles into 2.3x the instructions).
++    const bool Is_cqs = (Cqs_mode == 2) ? params.cqs_enabled : (Cqs_mode == 1);
+ 
+     using Element = typename Kernel_traits::Element;
+     using ElementAccum = typename Kernel_traits::ElementAccum;
+@@ -414,7 +419,7 @@
+         }
+ 
+         // TODO: when we have key_padding_mask we'll need to Check_inf
+-        if constexpr (Is_cqs) {
++        if (Is_cqs) {
+             if (masking_step == 0) {
+                 softmax.template softmax_rescale_o</*Is_first=*/true, /*Check_inf=*/true>(
+                     acc_s, acc_o, params.scale_softmax_log2);
+@@ -543,7 +548,7 @@
+             cqs_ts == 1 ? sCqsBits : nullptr, n_block * kBlockN
+         );
+ 
+-        if constexpr (Is_cqs) {
++        if (Is_cqs) {
+             softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/true>(
+                 acc_s, acc_o, params.scale_softmax_log2);
+         } else {
+@@ -1276,7 +1281,7 @@
+ 
+ ////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+-template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, bool Is_cqs, typename Params>
++template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, int Cqs_mode, typename Params>
+ inline __device__ void compute_attn(const Params &params) {
+     const int m_block = blockIdx.x;
+     // The block index for the batch.
+@@ -1292,7 +1297,7 @@
+     // the attention matrix. This way, as long as we have the batch, head, and the location of
+     // the 16 x 32 block within the attention matrix, we can generate the exact same dropout pattern.
+ 
+-    FLASH_NAMESPACE::compute_attn_1rowblock<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Return_softmax, Is_cqs>(params, bidb, bidh, m_block);
++    FLASH_NAMESPACE::compute_attn_1rowblock<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Return_softmax, Cqs_mode>(params, bidb, bidh, m_block);
+ }
+ 
+ ////////////////////////////////////////////////////////////////////////////////////////////////////

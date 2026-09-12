@@ -1,0 +1,39 @@
+0, NVIDIA A100 80GB PCIe, 81920 MiB
+1, NVIDIA A100 80GB PCIe, 81920 MiB
+2, NVIDIA A100 80GB PCIe, 81920 MiB
+3, NVIDIA A100 80GB PCIe, 81920 MiB
+[rank 3/4] device 3 NVIDIA A100 80GB PCIe[rank 2/4] device 2 NVIDIA A100 80GB PCIe[rank 1/4] device 1 NVIDIA A100 80GB PCIe
+
+
+[rank 0/4] device 0 NVIDIA A100 80GB PCIe
+[rank 0 23:19:44] fwd N=1048576 itr=1: entering distributed forward
+[rank 2 23:19:44] fwd N=1048576 itr=1: entering distributed forward
+[rank 3 23:19:44] fwd N=1048576 itr=1: entering distributed forward
+[rank 1 23:19:44] fwd N=1048576 itr=1: entering distributed forward
+N= 1048576 itr=1 world=4  single   12.92s  dist    5.06s  speedup 2.55x  (local 4.86s + merge 0.16s)  rel.err 3.34e-08  lse.err 9.54e-07  tasks/rank 2
+[rank 2 23:21:21] fwd N=2097152 itr=1: entering distributed forward
+[rank 3 23:21:21] fwd N=2097152 itr=1: entering distributed forward
+[rank 1 23:21:21] fwd N=2097152 itr=1: entering distributed forward
+[rank 0 23:21:34] fwd N=2097152 itr=1: entering distributed forward
+N= 2097152 itr=1 world=4  single   50.62s  dist   16.91s  speedup 2.99x  (local 16.59s + merge 0.22s)  rel.err 3.18e-08  lse.err 9.54e-07  tasks/rank 2
+[rank 2 23:24:54] fwd N=4194304 itr=1: entering distributed forward
+[rank 3 23:24:54] fwd N=4194304 itr=1: entering distributed forward
+[rank 1 23:24:55] fwd N=4194304 itr=1: entering distributed forward
+[rank 0 23:25:45] fwd N=4194304 itr=1: entering distributed forward
+[rank 2 23:27:33] fwd N=1048576 itr=2: entering distributed forward
+[rank 1 23:27:33] fwd N=1048576 itr=2: entering distributed forward
+[rank 3 23:27:33] fwd N=1048576 itr=2: entering distributed forward
+N= 4194304 itr=1 world=4  single  201.15s  dist   62.27s  speedup 3.23x  (local 61.61s + merge 0.42s)  rel.err 3.14e-08  lse.err 1.91e-06  tasks/rank 2
+[rank 0 23:30:54] fwd N=1048576 itr=2: entering distributed forward
+N= 1048576 itr=2 world=4  single   19.89s  dist    6.87s  speedup 2.90x  (local 6.45s + merge 0.11s)  rel.err 8.70e-08  lse.err 9.54e-07  tasks/rank 13
+[rank 2 23:32:33] fwd N=2097152 itr=2: entering distributed forward
+[rank 1 23:32:33] fwd N=2097152 itr=2: entering distributed forward
+[rank 3 23:32:33] fwd N=2097152 itr=2: entering distributed forward
+[rank 0 23:32:53] fwd N=2097152 itr=2: entering distributed forward
+N= 2097152 itr=2 world=4  single   65.95s  dist   20.11s  speedup 3.28x  (local 18.92s + merge 0.22s)  rel.err 8.41e-08  lse.err 9.54e-07  tasks/rank 13
+[rank 2 23:36:17] fwd N=4194304 itr=2: entering distributed forward
+[rank 1 23:36:17] fwd N=4194304 itr=2: entering distributed forward
+[rank 3 23:36:17] fwd N=4194304 itr=2: entering distributed forward
+[rank 0 23:37:23] fwd N=4194304 itr=2: entering distributed forward
+N= 4194304 itr=2 world=4  single  243.36s  dist   68.77s  speedup 3.54x  (local 66.66s + merge 0.43s)  rel.err 8.33e-08  lse.err 1.91e-06  tasks/rank 13
+wrote /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/distributed/../logs/dist_test_w4_itr1-2_gpu.json

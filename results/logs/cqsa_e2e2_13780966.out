@@ -1,0 +1,8 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+GPU NVIDIA A100-SXM4-80GB  B=1 H=8 D=64 fp16 causal, itr=1, Stream-CQSA acc=CPU n_par=1, next kernel=cqsa_cuda_next_v11
+       N |            fa2           sdpa        shipped           next | rel.err vs fa2 (shipped, next)
+  262144 |     0.36s/ 1.3G     0.39s/ 1.3G     2.17s/ 1.1G     1.17s/ 1.3G | 2.2e-04, 2.2e-04   [host della-l07g7 load fa2:5->5 sdpa:5->5 shipped:5->6 next:6->7]
+ 1048576 |     5.96s/ 5.0G     6.31s/ 5.0G    15.51s/ 4.6G     9.49s/ 5.3G | 3.0e-04, 3.0e-04   [host della-l07g7 load fa2:6->6 sdpa:6->5 shipped:5->6 next:6->6]
+ 2097152 |    24.18s/10.1G    25.66s/10.1G    50.97s/ 9.2G    35.31s/10.6G | 4.5e-04, 4.5e-04   [host della-l07g7 load fa2:5->5 sdpa:4->4 shipped:4->3 next:4->5]
+wrote /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/logs/e2e_compare_v11.json

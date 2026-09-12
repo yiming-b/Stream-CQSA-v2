@@ -1,0 +1,77 @@
+--- next/kernel/base/csrc/flash_attn/src/flash_fwd_kernel.h	2026-08-11 14:37:12.201254000 -0400
++++ next/kernel/v1/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 21:36:54.729475000 -0400
+@@ -327,10 +327,14 @@
+         params.cqs_owner_chunk,
+         params.cqs_chunk_ends,
+         params.cqs_group_bits,
+-        params.cqs_blk_or,
+-        params.cqs_blk_and,
+-        params.cqs_blk_size,
+-        params.cqs_num_blocks);
++        // next/ v1: summaries deliberately withheld, as the backward already
++        // does (flash_bwd_kernel.h). The O(1) tile verdicts below are computed
++        // from params -- constant memory -- and passed into apply_mask, so
++        // these four values never become live registers across the kernel.
++        // The forward compiled at REG:255 with 304-648 B of stack per
++        // instance; mask.h measured the same change at 7x on the backward.
++        /*blk_or=*/nullptr, /*blk_and=*/nullptr,
++        /*blk_size=*/0, /*num_blocks=*/0);
+ 
+     // For performance reason, we separate out two kinds of iterations:
+     // those that need masking on S, and those that don't.
+@@ -370,10 +374,16 @@
+             FLASH_NAMESPACE::apply_softcap(acc_s, params.softcap);
+         }
+ 
+-        mask.template apply_mask<Is_causal, Is_even_MN>(
+-            acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16,
+-            m_block * kBlockM, kBlockM, kBlockN
+-        );
++        {
++            const int cqs_ts = !params.cqs_enabled ? 0
++                : (FLASH_NAMESPACE::cqs_tile_clear(
++                       params.cqs_blk_or, params.cqs_blk_size, params.cqs_num_blocks,
++                       m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN) ? 0 : 1);
++            mask.template apply_mask<Is_causal, Is_even_MN>(
++                acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16,
++                m_block * kBlockM, kBlockM, kBlockN, cqs_ts
++            );
++        }
+ 
+         FLASH_NAMESPACE::cp_async_wait<0>();
+         __syncthreads();
+@@ -440,8 +450,11 @@
+         // skipped, so the loop's synchronisation invariants are unchanged.
+         // Only this loop does it: the masking loop above owns the Is_first=true
+         // softmax initialisation and must always run.
+-        const bool cqs_skip_block = mask.cqs_tile_is_fully_masked(
+-            m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN);
++        const bool cqs_skip_block = params.cqs_enabled
++            && FLASH_NAMESPACE::cqs_tile_masked(
++                   params.cqs_blk_and, params.cqs_blk_size, params.cqs_num_blocks,
++                   m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN,
++                   binfo.actual_seqlen_q, binfo.actual_seqlen_k);
+ 
+         Tensor acc_s = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_M, MMA_N)
+         clear(acc_s);
+@@ -471,10 +484,16 @@
+ 
+         if (cqs_skip_block) { continue; }
+ 
+-        mask.template apply_mask</*Causal_mask=*/false>(
+-            acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16,
+-            m_block * kBlockM, kBlockM, kBlockN
+-        );
++        {
++            const int cqs_ts = !params.cqs_enabled ? 0
++                : (FLASH_NAMESPACE::cqs_tile_clear(
++                       params.cqs_blk_or, params.cqs_blk_size, params.cqs_num_blocks,
++                       m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN) ? 0 : 1);
++            mask.template apply_mask</*Causal_mask=*/false>(
++                acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16,
++                m_block * kBlockM, kBlockM, kBlockN, cqs_ts
++            );
++        }
+ 
+         if (params.cqs_enabled) {
+             softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/true>(

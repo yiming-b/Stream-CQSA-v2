@@ -1,0 +1,41 @@
+--- next/kernel/v1/csrc/flash_attn/src/mask.h	2026-08-12 18:51:48.202366000 -0400
++++ next/kernel/v2/csrc/flash_attn/src/mask.h	2026-09-11 21:50:08.946184000 -0400
+@@ -350,7 +350,13 @@
+                                                // forward's path). 0/1: the caller
+                                                // already knows, so this Mask need
+                                                // not hold the summary pointers.
+-                                               const int cqs_tile_state=-1) {
++                                               const int cqs_tile_state=-1,
++                                               // next/ v2: this tile's column
++                                               // group-bits already staged in
++                                               // shared memory, indexed by
++                                               // col_idx - cqs_smem_col_base.
++                                               const int64_t* cqs_smem_bits=nullptr,
++                                               const int cqs_smem_col_base=0) {
+         static_assert(!(Causal_mask && Is_local), "Cannot be both causal and local");
+         static_assert(Layout::rank == 3, "Only support 3D Tensor");
+         static_assert(decltype(size<0>(tensor_))::value == 4, "First dimension must be 4");
+@@ -443,7 +449,10 @@
+                                     }
+                                     if (cqs_row_active) {
+                                         const bool cqs_masked = cqs_bitmask_mode
+-                                            ? cqs_should_mask_row_bits(cqs_row_bits, col_idx)
++                                            ? (cqs_smem_bits != nullptr
++                                               ? (col_idx >= 0 && col_idx < max_seqlen_k
++                                                  && (cqs_row_bits & cqs_smem_bits[col_idx - cqs_smem_col_base]) != 0)
++                                               : cqs_should_mask_row_bits(cqs_row_bits, col_idx))
+                                             : cqs_should_mask(row_idx, col_idx);
+                                         if (cqs_masked) {
+                                             tensor(make_coord(i, mi), make_coord(j, nj)) = -INFINITY;
+@@ -502,7 +511,10 @@
+                                 }
+                                 if (cqs_row_active) {
+                                     const bool cqs_masked = cqs_bitmask_mode
+-                                        ? cqs_should_mask_row_bits(cqs_row_bits, col_idx)
++                                        ? (cqs_smem_bits != nullptr
++                                           ? (col_idx >= 0 && col_idx < max_seqlen_k
++                                              && (cqs_row_bits & cqs_smem_bits[col_idx - cqs_smem_col_base]) != 0)
++                                           : cqs_should_mask_row_bits(cqs_row_bits, col_idx))
+                                         : cqs_should_mask(row_idx, col_idx);
+                                     if (cqs_masked) {
+                                         tensor(make_coord(i, mi), make_coord(j, nj)) = -INFINITY;

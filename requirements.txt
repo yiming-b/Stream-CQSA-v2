@@ -1,0 +1,14 @@
+# Runtime dependencies. Install PyTorch FIRST, matching your CUDA, e.g.
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+# then `pip install -e . --no-build-isolation` pulls the rest.
+#
+# This file is NOT a pinned environment lock -- the package is tested across
+# torch versions (built against 2.10 and 2.13 on CUDA 13).
+torch
+numpy
+
+# Optional, all lazily imported -- see extras_require in setup.py:
+#   pip install -e ".[bench]"
+# matplotlib   # figure generation, visualize_cqs_mask
+# tqdm         # progress bars
+# pytest       # test suite

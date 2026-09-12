@@ -1,0 +1,58 @@
+--- next/kernel/v7/csrc/flash_attn/src/flash_fwd_launch_template.h	2026-09-11 23:33:40.126648000 -0400
++++ next/kernel/v10/csrc/flash_attn/src/flash_fwd_launch_template.h	2026-09-12 01:20:20.751233000 -0400
+@@ -29,10 +29,10 @@
+ template<typename Kernel_traits, __VA_ARGS__> \
+ __global__ void kernelName(KERNEL_PARAM_MODIFIER const Flash_fwd_params params)
+ 
+-DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, bool Is_cqs) {
++DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, int Cqs_mode) {
+     #if defined(ARCH_SUPPORTS_FLASH)
+         static_assert(!(Is_causal && Is_local)); // Enforce constraints
+-        FLASH_NAMESPACE::compute_attn<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Return_softmax, Is_cqs>(params);
++        FLASH_NAMESPACE::compute_attn<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Return_softmax, Cqs_mode>(params);
+     #else
+         FLASH_UNSUPPORTED_ARCH
+     #endif
+@@ -51,6 +51,20 @@
+     FLASH_NAMESPACE::combine_attn_seqk_parallel<Kernel_traits, kBlockM, Log_max_splits, Is_even_K>(params);
+ }
+ 
++#define CQS_MODE_SWITCH(MODE, CONST_NAME, ...)              \
++    [&] {                                                  \
++        if (MODE == 0) {                                   \
++            constexpr static int CONST_NAME = 0;           \
++            return __VA_ARGS__();                          \
++        } else if (MODE == 1) {                            \
++            constexpr static int CONST_NAME = 1;           \
++            return __VA_ARGS__();                          \
++        } else {                                           \
++            constexpr static int CONST_NAME = 2;           \
++            return __VA_ARGS__();                          \
++        }                                                  \
++    }()
++
+ template<typename Kernel_traits, bool Is_dropout, bool Is_causal>
+ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
+     // next/ v2: one tile's worth of CQS column group-bits, staged in smem.
+@@ -70,7 +84,11 @@
+     // instantiation is upstream's straight-line KV loop (no verdicts, no
+     // predicated regions, one softmax instantiation); the on instantiation
+     // keeps exactly one Check_inf=true softmax instead of a runtime choice.
+-    BOOL_SWITCH(params.cqs_enabled, IsCqsConst, [&] {
++    // next/ v10: 0 = CQS off (compile time), 1 = on (compile time, causal only),
++    // 2 = runtime flag (non-causal CQS-on; its compile-time-on instantiation
++    // generates 2.3x the instructions, see LOG.md).
++    const int cqs_mode = !params.cqs_enabled ? 0 : (Is_causal ? 1 : 2);
++    CQS_MODE_SWITCH(cqs_mode, CqsModeConst, [&] {
+     BOOL_SWITCH(is_even_MN, IsEvenMNConst, [&] {
+         EVENK_SWITCH(is_even_K, IsEvenKConst, [&] {
+             LOCAL_SWITCH((params.window_size_left >= 0 || params.window_size_right >= 0) && !Is_causal, Is_local, [&] {
+@@ -82,7 +100,7 @@
+                             // If return_softmax, set IsEvenMNConst to false to reduce number of templates
+                             // If head dim > 128, set IsEvenMNConst to false to reduce number of templates
+                             // If Is_local, set Is_causal to false
+-                            auto kernel = &flash_fwd_kernel<Kernel_traits, Is_dropout && !Is_softcap, Is_causal, Is_local && !Is_causal, Has_alibi, IsEvenMNConst && IsEvenKConst && !Is_local && !Has_alibi && !ReturnSoftmaxConst && Kernel_traits::kHeadDim <= 128, IsEvenKConst && !ReturnSoftmaxConst && !Has_alibi, Is_softcap, ReturnSoftmaxConst && Is_dropout && !Is_softcap, IsCqsConst>;
++                            auto kernel = &flash_fwd_kernel<Kernel_traits, Is_dropout && !Is_softcap, Is_causal, Is_local && !Is_causal, Has_alibi, IsEvenMNConst && IsEvenKConst && !Is_local && !Has_alibi && !ReturnSoftmaxConst && Kernel_traits::kHeadDim <= 128, IsEvenKConst && !ReturnSoftmaxConst && !Has_alibi, Is_softcap, ReturnSoftmaxConst && Is_dropout && !Is_softcap, CqsModeConst>;
+                             // auto kernel = &flash_fwd_kernel<Kernel_traits, false, Is_causal, false, false, true, true, false>;
+                             // printf("IsEvenMNConst = %d, IsEvenKConst = %d, Is_local = %d, Is_causal = %d, ReturnSoftmaxConst = %d, Is_dropout = %d\n", int(IsEvenMNConst), int(IsEvenKConst), int(Is_local), int(Is_causal), int(ReturnSoftmaxConst), int(Is_dropout));
+                             // auto kernel = &flash_fwd_kernel<Kernel_traits, false, Is_causal, false, true, true, false>;

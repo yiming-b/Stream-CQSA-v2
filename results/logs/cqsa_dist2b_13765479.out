@@ -1,0 +1,29 @@
+0, NVIDIA A100-SXM4-80GB, 81920 MiB
+1, NVIDIA A100-SXM4-80GB, 81920 MiB
+[rank 1/2] device 1 NVIDIA A100-SXM4-80GB
+[rank 0/2] device 0 NVIDIA A100-SXM4-80GB
+[rank 0 23:20:34] fwd N=65536 itr=1: entering distributed forward
+[rank 1 23:20:34] fwd N=65536 itr=1: entering distributed forward
+N=   65536 itr=1 world=2  single    0.42s  dist    0.51s  speedup 0.83x  (local 0.49s + merge 0.01s)  rel.err 5.35e-08  lse.err 9.54e-07  tasks/rank 4
+[rank 1 23:20:35] bwd N=65536 itr=1: entering distributed backward
+[rank 0 23:20:35] bwd N=65536 itr=1: entering distributed backward
+[rank 1 23:20:36] bwd N=65536 itr=1: distributed backward done in 0.8s (local 0.5s, merge 0.2s)
+[rank 0 23:20:36] bwd N=65536 itr=1: distributed backward done in 0.8s (local 0.6s, merge 0.2s)
+        bwd itr=1  single    0.57s  dist    0.79s  speedup 0.71x  (local 0.57s + merge 0.15s)  rel.err dq 1.77e-05 dk 2.67e-05 dv 2.88e-05
+[rank 1 23:20:45] fwd N=262144 itr=1: entering distributed forward
+[rank 0 23:20:46] fwd N=262144 itr=1: entering distributed forward
+N=  262144 itr=1 world=2  single    1.28s  dist    1.41s  speedup 0.91x  (local 1.38s + merge 0.02s)  rel.err 5.02e-08  lse.err 9.54e-07  tasks/rank 4
+[rank 1 23:20:50] bwd N=262144 itr=1: entering distributed backward
+[rank 0 23:20:52] bwd N=262144 itr=1: entering distributed backward
+[rank 0 23:20:55] bwd N=262144 itr=1: distributed backward done in 3.4s (local 2.7s, merge 0.7s)
+[rank 1 23:20:55] bwd N=262144 itr=1: distributed backward done in 3.4s (local 2.2s, merge 1.2s)
+        bwd itr=1  single    3.76s  dist    3.42s  speedup 1.10x  (local 2.71s + merge 0.66s)  rel.err dq 1.83e-05 dk 2.97e-05 dv 3.83e-05
+[rank 1 23:21:31] fwd N=1048576 itr=1: entering distributed forward
+[rank 0 23:21:35] fwd N=1048576 itr=1: entering distributed forward
+[rank 1 23:21:57] bwd N=1048576 itr=1: entering distributed backward
+N= 1048576 itr=1 world=2  single   12.71s  dist    9.93s  speedup 1.28x  (local 9.80s + merge 0.09s)  rel.err 4.77e-08  lse.err 9.54e-07  tasks/rank 4
+[rank 0 23:22:10] bwd N=1048576 itr=1: entering distributed backward
+[rank 1 23:22:40] bwd N=1048576 itr=1: distributed backward done in 29.7s (local 20.7s, merge 8.7s)
+[rank 0 23:22:40] bwd N=1048576 itr=1: distributed backward done in 29.7s (local 26.9s, merge 2.6s)
+        bwd itr=1  single   43.72s  dist   29.66s  speedup 1.47x  (local 26.87s + merge 2.58s)  rel.err dq 2.23e-05 dk 3.48e-05 dv 5.08e-05
+wrote /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/distributed/../logs/dist_test_w2_itr1_cpu_bwd.json

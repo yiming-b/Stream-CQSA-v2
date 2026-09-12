@@ -1,0 +1,20 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+GPU NVIDIA A100-SXM4-80GB   backward: async scatter(1) vs shipped sync(0), itr=1 causal, acc=CPU, all operands on host
+
+=== N=65536 ===
+ npar  shipped ms   async ms  speedup   correctness
+    1       366.5      391.0     0.94x   async vs shipped rel: dq 6.4e-06 dk 0.0e+00 dv 0.0e+00   vs SDPA fp32: dq 3.0e-04 dk 3.0e-04 dv 3.2e-04
+    2       267.7      272.6     0.98x   async vs shipped rel: dq 6.5e-06 dk 0.0e+00 dv 0.0e+00   vs SDPA fp32: dq 3.0e-04 dk 3.0e-04 dv 3.2e-04
+
+=== N=262144 ===
+ npar  shipped ms   async ms  speedup   correctness
+    1      3170.4     3197.6     0.99x   async vs shipped rel: dq 8.2e-06 dk 0.0e+00 dv 0.0e+00
+    2      2990.0     2947.3     1.01x   async vs shipped rel: dq 8.1e-06 dk 0.0e+00 dv 0.0e+00
+
+=== N=1048576 ===
+ npar  shipped ms   async ms  speedup   correctness
+    1     42110.2    42083.6     1.00x   async vs shipped rel: dq 1.1e-05 dk 0.0e+00 dv 0.0e+00
+    2     40023.1    39934.1     1.00x   async vs shipped rel: dq 1.1e-05 dk 0.0e+00 dv 0.0e+00
+
+wrote /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/bench/../logs/pipeline_ab_bwd_65536_262144_1048576.json

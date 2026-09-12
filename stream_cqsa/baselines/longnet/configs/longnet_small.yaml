@@ -1,0 +1,19 @@
+longnet:
+  implementation: simplified_dilated_mask
+  segment_lengths: [32, 64, 128]
+  dilation_rates: [1, 2, 4]
+  causal: true
+  precision: fp32
+cqs:
+  c: 7
+  interest_set: [0, 1, 3]
+  itr: 1
+model:
+  layout: BLHD
+  batch_size: 1
+  num_heads: 2
+  head_dim: 16
+experiments:
+  correctness_sequence_lengths: [28, 31, 128, 512]
+  memory_runtime_sequence_lengths: [512, 1024, 2048, 4096]
+

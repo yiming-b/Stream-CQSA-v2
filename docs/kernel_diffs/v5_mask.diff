@@ -1,0 +1,97 @@
+--- next/kernel/v4/csrc/flash_attn/src/mask.h	2026-09-11 22:28:52.815191000 -0400
++++ next/kernel/v5/csrc/flash_attn/src/mask.h	2026-09-11 23:17:02.812067000 -0400
+@@ -235,6 +235,94 @@
+     return (r.row_or & cqs_blk_range_or(blk_or, blk_size, num_blocks, col_base, col_extent)) == 0;
+ }
+ 
++// next/ v5: compile-time block size. The Python side always builds summaries
++// with CQS_BLK_SIZE == 64 and flash_api.cpp rejects anything else, so the
++// block-index math below is shifts and masks instead of runtime divisions
++// (the runtime-blk_size helpers above cost ~8 integer divisions per verdict).
++// The column half of both verdicts is a small register struct that the KV
++// loop fetches one tile ahead, so the verdict at the top of an iteration is a
++// register AND, never a dependent global-load chain.
++static constexpr int kCqsBlk = 64;
++
++struct CqsColSummary {
++    int64_t col_or;
++    int64_t col_and;
++    bool    col_ok;         // cqs_tile_masked's column-side preconditions hold
++};
++
++__forceinline__ __device__ int64_t cqs_blk_range_or_c(const int64_t* blk_or, const int num_blocks,
++                                                      const int start, const int extent) {
++    const int lo = start < 0 ? 0 : start;
++    const int b0 = lo / kCqsBlk;
++    int b1 = (start + extent + kCqsBlk - 1) / kCqsBlk;
++    if (b1 > num_blocks) { b1 = num_blocks; }
++    int64_t acc = 0;
++    for (int b = b0; b < b1; ++b) { acc |= blk_or[b]; }
++    return acc;
++}
++
++__forceinline__ __device__ int64_t cqs_blk_range_and_c(const int64_t* blk_and, const int num_blocks,
++                                                       const int start, const int extent) {
++    const int lo = start < 0 ? 0 : start;
++    const int b0 = lo / kCqsBlk;
++    int b1 = (start + extent + kCqsBlk - 1) / kCqsBlk;
++    if (b1 > num_blocks) { b1 = num_blocks; }
++    if (b0 >= b1) { return 0; }
++    int64_t acc = ~int64_t(0);
++    for (int b = b0; b < b1; ++b) { acc &= blk_and[b]; }
++    return acc;
++}
++
++// Same contract as cqs_row_summary, with blk_size == kCqsBlk.
++__forceinline__ __device__ CqsRowSummary cqs_row_summary_c(const int64_t* blk_or, const int64_t* blk_and,
++                                                           const int num_blocks,
++                                                           const int row_base, const int row_extent,
++                                                           const int max_seqlen_q) {
++    CqsRowSummary r;
++    r.row_or = 0; r.row_and = 0; r.row_may_mask = false; r.row_clear = false;
++    if (blk_or != nullptr) {
++        r.row_or = cqs_blk_range_or_c(blk_or, num_blocks, row_base, row_extent);
++        r.row_clear = (r.row_or == 0);
++    }
++    if (blk_and != nullptr
++        && (row_base % kCqsBlk) == 0 && (row_extent % kCqsBlk) == 0
++        && row_base + row_extent <= max_seqlen_q) {
++        r.row_and = cqs_blk_range_and_c(blk_and, num_blocks, row_base, row_extent);
++        r.row_may_mask = (r.row_and != 0);
++    }
++    return r;
++}
++
++__forceinline__ __device__ CqsColSummary cqs_col_summary_c(const int64_t* blk_or, const int64_t* blk_and,
++                                                           const int num_blocks,
++                                                           const int col_base, const int col_extent,
++                                                           const int max_seqlen_k) {
++    CqsColSummary c;
++    c.col_or = 0; c.col_and = 0; c.col_ok = false;
++    if (blk_or != nullptr) {
++        c.col_or = cqs_blk_range_or_c(blk_or, num_blocks, col_base, col_extent);
++    }
++    if (blk_and != nullptr
++        && (col_base % kCqsBlk) == 0 && (col_extent % kCqsBlk) == 0
++        && col_base + col_extent <= max_seqlen_k) {
++        c.col_and = cqs_blk_range_and_c(blk_and, num_blocks, col_base, col_extent);
++        c.col_ok = true;
++    }
++    return c;
++}
++
++// == cqs_tile_masked(blk_and, 64, ...) for the same tile.
++__forceinline__ __device__ bool cqs_tile_masked_c(const CqsRowSummary& r, const CqsColSummary& c) {
++    return r.row_may_mask && c.col_ok && (r.row_and & c.col_and) != 0;
++}
++
++// == cqs_tile_clear(blk_or, 64, ...) for the same tile.
++__forceinline__ __device__ bool cqs_tile_clear_c(const CqsRowSummary& r, const CqsColSummary& c,
++                                                 const int64_t* blk_or) {
++    if (blk_or == nullptr) { return false; }
++    return r.row_clear || (r.row_or & c.col_or) == 0;
++}
++
+ template <bool Is_causal, bool Is_local, bool Has_alibi>
+ struct Mask {
+ 

@@ -1,0 +1,157 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+devices[cuda:0=NVIDIA A100-SXM4-80GB 71.0/79.3 GiB] host 751 GiB, 16 cpus, link 25 GB/s
+calibrate: mono 0.114s -> pair_rate 6.03e+11/s; kernel_ratio 1.50; gather 173.3 ns/tok (host) 13.5 (dev); merge 1023.7 ns/tok (cpu) 23.8 (gpu); d2h 530.6 ns/tok; itr2/itr1 1.90 -> depth_factor 1.46
+
+##### compare_kernels: native kernel in Stream-CQSA vs flash-attn monolithic, N=65536
+compare_kernels: N=65536 B=1 H=8 D=64 float16 causal=True itr=1
+  exactness : exact (within rounding: 2.2e-04 vs the monolithic kernel's own 2.8e-04 error against float64)
+    CQSA(inner) vs monolithic : rel 2.21e-04  max|d| 9.18e-04  bit-identical=False
+    monolithic  vs float64    : rel 2.83e-04  max|d| 1.28e-04
+    CQSA(inner) vs float64    : rel 1.90e-04  max|d| 6.53e-05
+  performance: monolithic 0.0372 s, peak 0.31 GiB | CQSA 0.0788 s, peak 0.78 GiB  (ratio 2.12x time, 2.48x memory)
+compare_kernels: N=65536 B=1 H=8 D=64 float16 causal=True itr=1
+  exactness : exact (within rounding: 2.2e-04 vs the monolithic kernel's own 2.8e-04 error against float64)
+    CQSA(inner) vs monolithic : rel 2.21e-04  max|d| 9.18e-04  bit-identical=False
+    monolithic  vs float64    : rel 2.83e-04  max|d| 1.28e-04
+    CQSA(inner) vs float64    : rel 1.90e-04  max|d| 6.53e-05
+  performance: monolithic 0.0368 s, peak 0.32 GiB | CQSA 0.2947 s, peak 0.40 GiB  (ratio 8.00x time, 1.25x memory)
+compare_kernels: N=65536 B=1 H=8 D=64 float16 causal=True itr=2
+  exactness : exact (within rounding: 2.3e-04 vs the monolithic kernel's own 2.8e-04 error against float64)
+    CQSA(inner) vs monolithic : rel 2.34e-04  max|d| 9.18e-04  bit-identical=False
+    monolithic  vs float64    : rel 2.83e-04  max|d| 1.28e-04
+    CQSA(inner) vs float64    : rel 1.88e-04  max|d| 6.53e-05
+  performance: monolithic 0.0378 s, peak 0.32 GiB | CQSA 0.1218 s, peak 0.64 GiB  (ratio 3.22x time, 2.00x memory)
+
+##### quick_bench N=65536 budget=70.0 GiB
+quick_bench N=65536 B=1 H=8 D=64 float16 causal=True  device=NVIDIA A100-SXM4-80GB  budget=70.0
+                            config    time s  peak GiB  rel err vs fp64   note
+                       mono[flash]     0.034      0.32         2.83e-04
+                        mono[sdpa]     0.036      0.32         2.83e-04
+         cqsa itr=1 acc=gpu npar=1     0.081      0.73         1.90e-04
+         cqsa itr=1 acc=gpu npar=2     0.064      0.73         1.90e-04
+         cqsa itr=1 acc=gpu npar=4     0.066      0.73         1.90e-04
+    cqsa itr=1 acc=gpu npar=1 host     0.084      0.62         1.90e-04
+    cqsa itr=1 acc=gpu npar=2 host     0.066      0.70         1.90e-04
+    cqsa itr=1 acc=gpu npar=4 host     0.068      0.73         1.90e-04
+    cqsa itr=1 acc=cpu npar=1 host     0.277      0.34         1.90e-04
+    cqsa itr=1 acc=cpu npar=2 host     0.432      0.42         1.90e-04
+    cqsa itr=1 acc=cpu npar=4 host     0.293      0.45         1.90e-04
+         cqsa itr=2 acc=gpu npar=1     0.171      0.58         1.88e-04
+         cqsa itr=2 acc=gpu npar=2     0.115      0.58         1.88e-04
+         cqsa itr=2 acc=gpu npar=4     0.101      0.58         1.88e-04
+    cqsa itr=2 acc=gpu npar=1 host     0.331      0.39         1.88e-04
+    cqsa itr=2 acc=gpu npar=2 host     0.200      0.39         1.88e-04
+    cqsa itr=2 acc=gpu npar=4 host     0.189      0.39         1.88e-04
+    cqsa itr=2 acc=cpu npar=1 host     0.704      0.26         1.88e-04
+    cqsa itr=2 acc=cpu npar=2 host     0.672      0.26         1.88e-04
+    cqsa itr=2 acc=cpu npar=4 host     0.832      0.26         1.88e-04
+pick (rule: max memory under budget unless faster AND smaller): mono[flash]  0.034 s, 0.32 GiB
+planner (calibrated model) says: monolithic est 0.03s 0.3GiB -- monolithic fits (0.29 GiB <= 60.3 GiB budget) and is the fastest feasible configuration (0.03 s predicted)
+
+##### compare_kernels: native kernel in Stream-CQSA vs flash-attn monolithic, N=262144
+compare_kernels: N=262144 B=1 H=8 D=64 float16 causal=True itr=1
+  exactness : exact (within rounding: 2.3e-04 vs the monolithic kernel's own 3.1e-04 error against float64)
+    CQSA(inner) vs monolithic : rel 2.28e-04  max|d| 9.58e-04  bit-identical=False
+    monolithic  vs float64    : rel 3.12e-04  max|d| 5.53e-05
+    CQSA(inner) vs float64    : rel 2.05e-04  max|d| 2.78e-05
+  performance: monolithic 0.4142 s, peak 1.27 GiB | CQSA 0.6534 s, peak 3.13 GiB  (ratio 1.58x time, 2.47x memory)
+compare_kernels: N=262144 B=1 H=8 D=64 float16 causal=True itr=1
+  exactness : exact (within rounding: 2.3e-04 vs the monolithic kernel's own 3.1e-04 error against float64)
+    CQSA(inner) vs monolithic : rel 2.27e-04  max|d| 9.58e-04  bit-identical=False
+    monolithic  vs float64    : rel 3.12e-04  max|d| 5.53e-05
+    CQSA(inner) vs float64    : rel 2.05e-04  max|d| 2.78e-05
+  performance: monolithic 0.4182 s, peak 1.27 GiB | CQSA 0.9857 s, peak 1.58 GiB  (ratio 2.36x time, 1.25x memory)
+compare_kernels: N=262144 B=1 H=8 D=64 float16 causal=True itr=2
+  exactness : exact (within rounding: 2.4e-04 vs the monolithic kernel's own 3.1e-04 error against float64)
+    CQSA(inner) vs monolithic : rel 2.43e-04  max|d| 9.58e-04  bit-identical=False
+    monolithic  vs float64    : rel 3.12e-04  max|d| 5.53e-05
+    CQSA(inner) vs float64    : rel 2.00e-04  max|d| 2.78e-05
+  performance: monolithic 0.4176 s, peak 1.27 GiB | CQSA 0.7583 s, peak 2.55 GiB  (ratio 1.82x time, 2.01x memory)
+
+##### quick_bench N=262144 budget=70.0 GiB
+quick_bench N=262144 B=1 H=8 D=64 float16 causal=True  device=NVIDIA A100-SXM4-80GB  budget=70.0
+                            config    time s  peak GiB  rel err vs fp64   note
+                       mono[flash]     0.405      1.27         3.12e-04
+                        mono[sdpa]     0.429      1.27         3.12e-04
+         cqsa itr=1 acc=gpu npar=1     0.667      2.88         2.05e-04
+         cqsa itr=1 acc=gpu npar=2     0.602      2.88         2.05e-04
+         cqsa itr=1 acc=gpu npar=4     0.602      2.88         2.05e-04
+    cqsa itr=1 acc=gpu npar=1 host     0.678      2.45         2.05e-04
+    cqsa itr=1 acc=gpu npar=2 host     0.616      2.77         2.05e-04
+    cqsa itr=1 acc=gpu npar=4 host     0.625      2.88         2.05e-04
+    cqsa itr=1 acc=cpu npar=1 host     0.979      1.33         2.05e-04
+    cqsa itr=1 acc=cpu npar=2 host     1.202      1.65         2.05e-04
+    cqsa itr=1 acc=cpu npar=4 host     1.141      1.76         2.05e-04
+         cqsa itr=2 acc=gpu npar=1     0.991      2.30         2.00e-04
+         cqsa itr=2 acc=gpu npar=2     0.727      2.30         2.00e-04
+         cqsa itr=2 acc=gpu npar=4     0.725      2.30         2.00e-04
+    cqsa itr=2 acc=gpu npar=1 host     1.738      1.55         2.00e-04
+    cqsa itr=2 acc=gpu npar=2 host     1.089      1.55         2.00e-04
+    cqsa itr=2 acc=gpu npar=4 host     0.797      1.55         2.00e-04
+    cqsa itr=2 acc=cpu npar=1 host     2.492      1.01         2.00e-04
+    cqsa itr=2 acc=cpu npar=2 host     2.356      1.01         2.00e-04
+    cqsa itr=2 acc=cpu npar=4 host     2.358      1.01         2.00e-04
+pick (rule: max memory under budget unless faster AND smaller): mono[flash]  0.405 s, 1.27 GiB
+planner (calibrated model) says: monolithic est 0.46s 1.2GiB -- monolithic fits (1.16 GiB <= 60.3 GiB budget) and is the fastest feasible configuration (0.46 s predicted)
+
+##### compare_kernels: native kernel in Stream-CQSA vs flash-attn monolithic, N=1048576
+compare_kernels: N=1048576 B=1 H=8 D=64 float16 causal=True itr=1
+  exactness : exact (within rounding: 3.1e-04 vs the monolithic kernel's own 5.5e-04 error against float64)
+    CQSA(inner) vs monolithic : rel 3.14e-04  max|d| 8.33e-04  bit-identical=False
+    monolithic  vs float64    : rel 5.52e-04  max|d| 2.64e-05
+    CQSA(inner) vs float64    : rel 2.83e-04  max|d| 1.78e-05
+  performance: monolithic 6.1325 s, peak 5.04 GiB | CQSA 8.2831 s, peak 12.49 GiB  (ratio 1.35x time, 2.48x memory)
+compare_kernels: N=1048576 B=1 H=8 D=64 float16 causal=True itr=1
+  exactness : exact (within rounding: 3.1e-04 vs the monolithic kernel's own 5.5e-04 error against float64)
+    CQSA(inner) vs monolithic : rel 3.14e-04  max|d| 8.33e-04  bit-identical=False
+    monolithic  vs float64    : rel 5.52e-04  max|d| 2.64e-05
+    CQSA(inner) vs float64    : rel 2.83e-04  max|d| 1.78e-05
+  performance: monolithic 6.1734 s, peak 5.04 GiB | CQSA 9.4774 s, peak 6.29 GiB  (ratio 1.54x time, 1.25x memory)
+compare_kernels: N=1048576 B=1 H=8 D=64 float16 causal=True itr=2
+  exactness : exact (within rounding: 3.7e-04 vs the monolithic kernel's own 5.5e-04 error against float64)
+    CQSA(inner) vs monolithic : rel 3.65e-04  max|d| 8.33e-04  bit-identical=False
+    monolithic  vs float64    : rel 5.52e-04  max|d| 2.64e-05
+    CQSA(inner) vs float64    : rel 2.25e-04  max|d| 1.78e-05
+  performance: monolithic 6.1719 s, peak 5.04 GiB | CQSA 8.6945 s, peak 10.17 GiB  (ratio 1.41x time, 2.02x memory)
+
+##### quick_bench N=1048576 budget=70.0 GiB
+quick_bench N=1048576 B=1 H=8 D=64 float16 causal=True  device=NVIDIA A100-SXM4-80GB  budget=70.0
+                            config    time s  peak GiB  rel err vs fp64   note
+                       mono[flash]     6.115      5.04         5.52e-04
+                        mono[sdpa]     6.484      5.04         5.52e-04
+         cqsa itr=1 acc=gpu npar=1     8.339     11.49         2.83e-04
+         cqsa itr=1 acc=gpu npar=2     8.067     11.49         2.83e-04
+         cqsa itr=1 acc=gpu npar=4     8.025     11.49         2.83e-04
+    cqsa itr=1 acc=gpu npar=1 host     8.650      9.78         2.83e-04
+    cqsa itr=1 acc=gpu npar=2 host     8.412     11.06         2.83e-04
+    cqsa itr=1 acc=gpu npar=4 host     8.455     11.49         2.83e-04
+    cqsa itr=1 acc=cpu npar=1 host     9.537      5.30         2.83e-04
+    cqsa itr=1 acc=cpu npar=2 host     9.245      6.58         2.83e-04
+    cqsa itr=1 acc=cpu npar=4 host     9.481      7.01         2.83e-04
+         cqsa itr=2 acc=gpu npar=1     9.829      9.17         2.25e-04
+         cqsa itr=2 acc=gpu npar=2     8.561      9.17         2.25e-04
+         cqsa itr=2 acc=gpu npar=4     8.561      9.17         2.25e-04
+    cqsa itr=2 acc=gpu npar=1 host    12.912      6.17         2.25e-04
+    cqsa itr=2 acc=gpu npar=2 host     9.924      6.17         2.25e-04
+    cqsa itr=2 acc=gpu npar=4 host     9.120      6.17         2.25e-04
+    cqsa itr=2 acc=cpu npar=1 host    14.567      4.01         2.25e-04
+    cqsa itr=2 acc=cpu npar=2 host    11.233      4.01         2.25e-04
+    cqsa itr=2 acc=cpu npar=4 host     9.007      4.01         2.25e-04
+pick (rule: max memory under budget unless faster AND smaller): mono[flash]  6.115 s, 5.04 GiB
+planner (calibrated model) says: monolithic est 7.30s 4.6GiB -- monolithic fits (4.64 GiB <= 60.3 GiB budget) and is the fastest feasible configuration (7.30 s predicted)
+budget 31 GiB, N=65536: monolithic est 0.0s 0.3GiB
+budget 31 GiB, N=262144: monolithic est 0.5s 1.2GiB
+budget 31 GiB, N=1048576: monolithic est 7.3s 4.6GiB
+
+##### autotune (measured pick) at N=262144, 40% budget
+quick_bench N=262144 B=1 H=8 D=64 float16 causal=True  device=NVIDIA A100-SXM4-80GB  budget=31.4691162109375
+                            config    time s  peak GiB  rel err vs fp64   note
+                       mono[flash]     0.408      1.27         3.25e-04
+         cqsa itr=1 acc=gpu npar=2     0.602      2.88         2.11e-04
+         cqsa itr=1 acc=gpu npar=4     0.591      2.88         2.11e-04
+         cqsa itr=1 acc=gpu npar=1     0.668      2.88         2.11e-04
+    cqsa itr=1 acc=gpu npar=2 host     0.617      2.77         2.11e-04
+    cqsa itr=1 acc=gpu npar=4 host     0.625      2.88         2.11e-04
+pick (rule: max memory under budget unless faster AND smaller): mono[flash]  0.408 s, 1.27 GiB
+autotune -> monolithic measured: mono[flash] 0.408 s at 1.27 GiB (rule applied to measurements)

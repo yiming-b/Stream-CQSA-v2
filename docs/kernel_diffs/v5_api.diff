@@ -1,0 +1,22 @@
+--- next/kernel/v4/csrc/flash_attn/flash_api.cpp	2026-08-12 21:30:52.458423000 -0400
++++ next/kernel/v5/csrc/flash_attn/flash_api.cpp	2026-09-11 23:16:22.128645000 -0400
+@@ -784,6 +784,9 @@
+             TORCH_CHECK(blk_or.numel() == blk_and.numel(), "cqs block summaries must match in length");
+             const int blk_size = static_cast<int>(cqs_blk_size_.value_or(0));
+             TORCH_CHECK(blk_size > 0, "cqs_blk_size must be positive when summaries are provided");
++            // next/ v5: the forward kernel's tile verdicts use a compile-time
++            // block size (kCqsBlk in mask.h) so the index math is shifts.
++            TORCH_CHECK(blk_size == 64, "cqs_blk_size must be 64 (CQS_BLK_SIZE) for this kernel build");
+             TORCH_CHECK(blk_or.numel() >= (seqlen_q + blk_size - 1) / blk_size,
+                         "cqs block summaries too short for seqlen_q");
+             params.cqs_blk_or = blk_or.data_ptr<int64_t>();
+@@ -1871,6 +1874,9 @@
+                         "cqs_blk_or and cqs_blk_and must have equal length");
+             const int blk_size = static_cast<int>(cqs_blk_size_.value_or(0));
+             TORCH_CHECK(blk_size > 0, "cqs_blk_size must be positive when summaries are provided");
++            // next/ v5: the forward kernel's tile verdicts use a compile-time
++            // block size (kCqsBlk in mask.h) so the index math is shifts.
++            TORCH_CHECK(blk_size == 64, "cqs_blk_size must be 64 (CQS_BLK_SIZE) for this kernel build");
+             TORCH_CHECK((int64_t)blk_or.numel() * blk_size >= (int64_t)seqlen_q,
+                         "cqs block summaries too short for seqlen_q");
+             params.cqs_blk_or = blk_or.data_ptr<int64_t>();

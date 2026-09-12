@@ -1,0 +1,175 @@
+--- next/kernel/v5/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 23:17:02.813120000 -0400
++++ next/kernel/v6/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 23:34:52.691459000 -0400
+@@ -57,7 +57,7 @@
+ }
+ 
+ 
+-template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, typename Params>
++template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, bool Is_cqs, typename Params>
+ inline __device__ void compute_attn_1rowblock(const Params &params, const int bidb, const int bidh, const int m_block) {
+ 
+     using Element = typename Kernel_traits::Element;
+@@ -327,7 +327,7 @@
+         params.window_size_left,
+         params.window_size_right,
+         alibi_slope,
+-        params.cqs_enabled,
++        Is_cqs,
+         params.cqs_num_chunks,
+         params.cqs_owner_chunk,
+         params.cqs_chunk_ends,
+@@ -365,7 +365,7 @@
+         const FLASH_NAMESPACE::CqsColSummary cqs_cs_m = FLASH_NAMESPACE::cqs_col_summary_c(
+             params.cqs_blk_or, params.cqs_blk_and, params.cqs_num_blocks,
+             n_block * kBlockN, kBlockN, binfo.actual_seqlen_k);
+-        const int cqs_ts = !params.cqs_enabled ? 0
++        const int cqs_ts = !Is_cqs ? 0
+             : (FLASH_NAMESPACE::cqs_tile_clear_c(cqs_rs, cqs_cs_m, params.cqs_blk_or) ? 0 : 1);
+         if (cqs_ts == 1) {
+             for (int t = tidx; t < kBlockN; t += Kernel_traits::kNThreads) {
+@@ -414,7 +414,7 @@
+         }
+ 
+         // TODO: when we have key_padding_mask we'll need to Check_inf
+-        if (params.cqs_enabled) {
++        if constexpr (Is_cqs) {
+             if (masking_step == 0) {
+                 softmax.template softmax_rescale_o</*Is_first=*/true, /*Check_inf=*/true>(
+                     acc_s, acc_o, params.scale_softmax_log2);
+@@ -463,7 +463,7 @@
+     // next/ v5: column half of the verdicts for the first steady tile; inside
+     // the loop the next tile's is fetched one iteration ahead (cqs_cs_next) and
+     // rotated in by the loop increment, so `continue` cannot skip the rotation.
+-    FLASH_NAMESPACE::CqsColSummary cqs_cs = (params.cqs_enabled && n_block >= n_block_min)
++    FLASH_NAMESPACE::CqsColSummary cqs_cs = (Is_cqs && n_block >= n_block_min)
+         ? FLASH_NAMESPACE::cqs_col_summary_c(params.cqs_blk_or, params.cqs_blk_and, params.cqs_num_blocks,
+                                              n_block * kBlockN, kBlockN, binfo.actual_seqlen_k)
+         : FLASH_NAMESPACE::CqsColSummary{0, 0, false};
+@@ -477,13 +477,13 @@
+         // skipped, so the loop's synchronisation invariants are unchanged.
+         // Only this loop does it: the masking loop above owns the Is_first=true
+         // softmax initialisation and must always run.
+-        const bool cqs_skip_block = params.cqs_enabled
++        const bool cqs_skip_block = Is_cqs
+             && FLASH_NAMESPACE::cqs_tile_masked_c(cqs_rs, cqs_cs);
+-        const int cqs_ts = (!params.cqs_enabled || cqs_skip_block) ? 0
++        const int cqs_ts = (!Is_cqs || cqs_skip_block) ? 0
+             : (FLASH_NAMESPACE::cqs_tile_clear_c(cqs_rs, cqs_cs, params.cqs_blk_or) ? 0 : 1);
+         // Issue the next tile's summary loads now; they are consumed at the K
+         // prefetch below and at the top of the next iteration, far from here.
+-        cqs_cs_next = (params.cqs_enabled && n_block > n_block_min)
++        cqs_cs_next = (Is_cqs && n_block > n_block_min)
+             ? FLASH_NAMESPACE::cqs_col_summary_c(params.cqs_blk_or, params.cqs_blk_and, params.cqs_num_blocks,
+                                                  (n_block - 1) * kBlockN, kBlockN, binfo.actual_seqlen_k)
+             : FLASH_NAMESPACE::CqsColSummary{0, 0, false};
+@@ -525,7 +525,7 @@
+             // K(n_block-1) is consumed only if that tile is not fully masked.
+             // Same verdict function the next iteration will evaluate, so the
+             // prefetch and the consumer always agree.
+-            const bool cqs_next_skip = params.cqs_enabled
++            const bool cqs_next_skip = Is_cqs
+                 && FLASH_NAMESPACE::cqs_tile_masked_c(cqs_rs, cqs_cs_next);
+             if (!cqs_next_skip) {
+                 FLASH_NAMESPACE::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, seg_k(n_block - 1), tKsK, tKVcKV, tKVpKV);
+@@ -543,7 +543,7 @@
+             cqs_ts == 1 ? sCqsBits : nullptr, n_block * kBlockN
+         );
+ 
+-        if (params.cqs_enabled) {
++        if constexpr (Is_cqs) {
+             softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/true>(
+                 acc_s, acc_o, params.scale_softmax_log2);
+         } else {
+@@ -577,6 +577,35 @@
+ 
+     Tensor lse = softmax.template normalize_softmax_lse<Is_dropout>(acc_o, params.scale_softmax, params.rp_dropout);
+ 
++    Tensor caccO = make_identity_tensor(Shape<Int<kBlockM>, Int<kHeadDim>>{});    // (BLK_M,BLK_K) -> (blk_m,blk_k)
++    Tensor taccOcO = thr_mma.partition_C(caccO);                           // (MMA,MMA_M,MMA_K)
++    // next/ v6: the fp32 store happens HERE, right after normalisation, so
++    // acc_o's registers die at the same point as in upstream (the convert
++    // below) instead of staying live across the whole O smem round-trip.
++    // Stream-CQSA: also emit acc_o in fp32. acc_o is normalised at this point,
++    // so it stays in the convex hull of V and cannot overflow; the raw
++    // (unnormalised) accumulator could reach ~L*|V| and would need a wider
++    // range. Written straight from the MMA registers using the accumulator's
++    // own partitioning, so no smem staging and no Kernel_traits change.
++    if (params.cqs_out_acc_ptr != nullptr) {
++        Tensor mOacc = make_tensor(
++            make_gmem_ptr(reinterpret_cast<ElementAccum *>(params.cqs_out_acc_ptr)
++                          + binfo.q_offset(params.o_batch_stride, params.o_row_stride, bidb)),
++            make_shape(binfo.actual_seqlen_q, params.h, params.d),
++            make_stride(params.o_row_stride, params.o_head_stride, _1{}));
++        Tensor gOacc = local_tile(mOacc(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
++                                  make_coord(m_block, 0));
++        Tensor tOgOacc = thr_mma.partition_C(gOacc);
++        const int row_limit = binfo.actual_seqlen_q - m_block * kBlockM;
++        #pragma unroll
++        for (int i = 0; i < size(acc_o); ++i) {
++            const int row = get<0>(taccOcO(i));
++            const int col = get<1>(taccOcO(i));
++            if (row < row_limit && col < params.d) { tOgOacc(i) = acc_o(i); }
++        }
++    }
++
++
+     // Convert acc_o from fp32 to fp16/bf16
+     Tensor rO = FLASH_NAMESPACE::convert_type<Element>(acc_o);
+     Tensor sO = make_tensor(sQ.data(), typename Kernel_traits::SmemLayoutO{});    // (SMEM_M,SMEM_N)
+@@ -609,8 +638,6 @@
+     Tensor tOrO = make_tensor<Element>(shape(tOgO));
+     cute::copy(gmem_tiled_copy_O, tOsO, tOrO);
+ 
+-    Tensor caccO = make_identity_tensor(Shape<Int<kBlockM>, Int<kHeadDim>>{});    // (BLK_M,BLK_K) -> (blk_m,blk_k)
+-    Tensor taccOcO = thr_mma.partition_C(caccO);                           // (MMA,MMA_M,MMA_K)
+     static_assert(decltype(size<0>(taccOcO))::value == 4);
+     // Convert to ((2, 2), MMA_M, MMA_K) then take only the row indices.
+     Tensor taccOcO_row = logical_divide(taccOcO, Shape<_2>{})(make_coord(0, _), _, 0);
+@@ -623,29 +650,6 @@
+         }
+     }
+ 
+-    // Stream-CQSA: also emit acc_o in fp32. acc_o is normalised at this point,
+-    // so it stays in the convex hull of V and cannot overflow; the raw
+-    // (unnormalised) accumulator could reach ~L*|V| and would need a wider
+-    // range. Written straight from the MMA registers using the accumulator's
+-    // own partitioning, so no smem staging and no Kernel_traits change.
+-    if (params.cqs_out_acc_ptr != nullptr) {
+-        Tensor mOacc = make_tensor(
+-            make_gmem_ptr(reinterpret_cast<ElementAccum *>(params.cqs_out_acc_ptr)
+-                          + binfo.q_offset(params.o_batch_stride, params.o_row_stride, bidb)),
+-            make_shape(binfo.actual_seqlen_q, params.h, params.d),
+-            make_stride(params.o_row_stride, params.o_head_stride, _1{}));
+-        Tensor gOacc = local_tile(mOacc(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
+-                                  make_coord(m_block, 0));
+-        Tensor tOgOacc = thr_mma.partition_C(gOacc);
+-        const int row_limit = binfo.actual_seqlen_q - m_block * kBlockM;
+-        #pragma unroll
+-        for (int i = 0; i < size(acc_o); ++i) {
+-            const int row = get<0>(taccOcO(i));
+-            const int col = get<1>(taccOcO(i));
+-            if (row < row_limit && col < params.d) { tOgOacc(i) = acc_o(i); }
+-        }
+-    }
+-
+     // Construct identity layout for sO
+     Tensor cO = make_identity_tensor(make_shape(size<0>(sO), size<1>(sO)));    // (BLK_M,BLK_K) -> (blk_m,blk_k)
+     // Repeat the partitioning with identity layouts
+@@ -1272,7 +1276,7 @@
+ 
+ ////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+-template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, typename Params>
++template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, bool Is_cqs, typename Params>
+ inline __device__ void compute_attn(const Params &params) {
+     const int m_block = blockIdx.x;
+     // The block index for the batch.
+@@ -1288,7 +1292,7 @@
+     // the attention matrix. This way, as long as we have the batch, head, and the location of
+     // the 16 x 32 block within the attention matrix, we can generate the exact same dropout pattern.
+ 
+-    FLASH_NAMESPACE::compute_attn_1rowblock<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Return_softmax>(params, bidb, bidh, m_block);
++    FLASH_NAMESPACE::compute_attn_1rowblock<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Return_softmax, Is_cqs>(params, bidb, bidh, m_block);
+ }
+ 
+ ////////////////////////////////////////////////////////////////////////////////////////////////////

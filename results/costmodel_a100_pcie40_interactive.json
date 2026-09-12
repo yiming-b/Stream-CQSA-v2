@@ -1,0 +1,16 @@
+{
+ "pair_rate": 497634456668.3826,
+ "kernel_ratio": 1.3021342899284483,
+ "masked_frac": 0.22,
+ "depth_factor": 1.4498402904094245,
+ "gather_s_per_tok": 3.704988630488515e-07,
+ "gather_dev_s_per_tok": 1.2078125261420307e-08,
+ "merge_cpu_s_per_tok": 1.4115331474033137e-06,
+ "merge_gpu_s_per_tok": 2.751302084410175e-08,
+ "d2h_s_per_tok": 6.245917174965143e-07,
+ "overlap": 0.85,
+ "overlap_npar2": 0.92,
+ "dist_merge_bytes_per_tok": 8192,
+ "dist_imbalance": 1.35,
+ "dist_fixed_s": 0.4
+}

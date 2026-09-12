@@ -1,0 +1,58 @@
+--- next/kernel/v3/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 21:54:38.055560000 -0400
++++ next/kernel/v4/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 22:28:52.816457000 -0400
+@@ -340,6 +340,10 @@
+         // instance; mask.h measured the same change at 7x on the backward.
+         /*blk_or=*/nullptr, /*blk_and=*/nullptr,
+         /*blk_size=*/0, /*num_blocks=*/0);
++    // next/ v4: row half of the tile verdicts, once per CTA.
++    const FLASH_NAMESPACE::CqsRowSummary cqs_rs = FLASH_NAMESPACE::cqs_row_summary(
++        params.cqs_blk_or, params.cqs_blk_and, params.cqs_blk_size, params.cqs_num_blocks,
++        m_block * kBlockM, kBlockM, binfo.actual_seqlen_q);
+ 
+     // For performance reason, we separate out two kinds of iterations:
+     // those that need masking on S, and those that don't.
+@@ -359,9 +363,9 @@
+         // previous iteration's readers are behind its second __syncthreads,
+         // and the barrier just below publishes these writes before apply_mask.
+         const int cqs_ts = !params.cqs_enabled ? 0
+-            : (FLASH_NAMESPACE::cqs_tile_clear(
++            : (FLASH_NAMESPACE::cqs_tile_clear_rs(cqs_rs,
+                    params.cqs_blk_or, params.cqs_blk_size, params.cqs_num_blocks,
+-                   m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN) ? 0 : 1);
++                   n_block * kBlockN, kBlockN) ? 0 : 1);
+         if (cqs_ts == 1) {
+             for (int t = tidx; t < kBlockN; t += Kernel_traits::kNThreads) {
+                 const int c = n_block * kBlockN + t;
+@@ -465,14 +469,13 @@
+         // Only this loop does it: the masking loop above owns the Is_first=true
+         // softmax initialisation and must always run.
+         const bool cqs_skip_block = params.cqs_enabled
+-            && FLASH_NAMESPACE::cqs_tile_masked(
+-                   params.cqs_blk_and, params.cqs_blk_size, params.cqs_num_blocks,
+-                   m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN,
+-                   binfo.actual_seqlen_q, binfo.actual_seqlen_k);
++            && FLASH_NAMESPACE::cqs_tile_masked_rs(cqs_rs,
++                       params.cqs_blk_and, params.cqs_blk_size, params.cqs_num_blocks,
++                       n_block * kBlockN, kBlockN, binfo.actual_seqlen_k);
+         const int cqs_ts = (!params.cqs_enabled || cqs_skip_block) ? 0
+-            : (FLASH_NAMESPACE::cqs_tile_clear(
++            : (FLASH_NAMESPACE::cqs_tile_clear_rs(cqs_rs,
+                    params.cqs_blk_or, params.cqs_blk_size, params.cqs_num_blocks,
+-                   m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN) ? 0 : 1);
++                   n_block * kBlockN, kBlockN) ? 0 : 1);
+ 
+         Tensor acc_s = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_M, MMA_N)
+         clear(acc_s);
+@@ -512,10 +515,9 @@
+             // Same verdict function the next iteration will evaluate, so the
+             // prefetch and the consumer always agree.
+             const bool cqs_next_skip = params.cqs_enabled
+-                && FLASH_NAMESPACE::cqs_tile_masked(
++                && FLASH_NAMESPACE::cqs_tile_masked_rs(cqs_rs,
+                        params.cqs_blk_and, params.cqs_blk_size, params.cqs_num_blocks,
+-                       m_block * kBlockM, kBlockM, (n_block - 1) * kBlockN, kBlockN,
+-                       binfo.actual_seqlen_q, binfo.actual_seqlen_k);
++                       (n_block - 1) * kBlockN, kBlockN, binfo.actual_seqlen_k);
+             if (!cqs_next_skip) {
+                 FLASH_NAMESPACE::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, seg_k(n_block - 1), tKsK, tKVcKV, tKVpKV);
+                 // This cp_async_fence needs to be in the if block, otherwise the synchronization

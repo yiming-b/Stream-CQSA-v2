@@ -1,0 +1,22 @@
+# --- build artifacts (the extension is compiled per-GPU by the user) ---
+build/
+dist/
+*.egg-info/
+*.so
+*.o
+*.ninja*
+.ninja_deps
+.ninja_log
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+venv/
+.venv/
+
+# --- experiment scratch (results/ IS tracked; run outputs are not) ---
+outputs/
+*.log
+slurm-*.out

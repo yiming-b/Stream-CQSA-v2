@@ -1,0 +1,47 @@
+--- next/kernel/v2/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 21:47:09.087224000 -0400
++++ next/kernel/v3/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 21:54:38.055560000 -0400
+@@ -486,10 +486,16 @@
+                 sCqsBits[t] = (c < binfo.actual_seqlen_k) ? params.cqs_group_bits[c] : int64_t(0);
+             }
+         }
+-        FLASH_NAMESPACE::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, seg_v(n_block), tVsV, tKVcKV, tKVpKV);
+-        cute::cp_async_fence();
+-
++        // next/ v3: a fully-masked tile consumes neither its V nor (at the
++        // previous iteration) its K, so neither is fetched. In the real
++        // subproblems ~22% of causal tiles are fully masked (the non-owner
++        // chunks' diagonal blocks), and with the GEMMs already skipped their
++        // remaining cost was exactly this smem traffic. The barrier structure
++        // is unchanged; cp_async_wait<0> with nothing in flight is a no-op.
+         if (!cqs_skip_block) {
++            FLASH_NAMESPACE::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, seg_v(n_block), tVsV, tKVcKV, tKVpKV);
++            cute::cp_async_fence();
++
+             FLASH_NAMESPACE::gemm</*A_in_regs=*/Kernel_traits::Is_Q_in_regs>(
+                 acc_s, tSrQ, tSrK, tSsQ, tSsK, tiled_mma, smem_tiled_copy_Q, smem_tiled_copy_K,
+                 smem_thr_copy_Q, smem_thr_copy_K
+@@ -502,10 +508,20 @@
+         FLASH_NAMESPACE::cp_async_wait<0>();
+         __syncthreads();
+         if (n_block > n_block_min) {
+-            FLASH_NAMESPACE::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, seg_k(n_block - 1), tKsK, tKVcKV, tKVpKV);
+-            // This cp_async_fence needs to be in the if block, otherwise the synchronization
+-            // isn't right and we get race conditions.
+-            cute::cp_async_fence();
++            // K(n_block-1) is consumed only if that tile is not fully masked.
++            // Same verdict function the next iteration will evaluate, so the
++            // prefetch and the consumer always agree.
++            const bool cqs_next_skip = params.cqs_enabled
++                && FLASH_NAMESPACE::cqs_tile_masked(
++                       params.cqs_blk_and, params.cqs_blk_size, params.cqs_num_blocks,
++                       m_block * kBlockM, kBlockM, (n_block - 1) * kBlockN, kBlockN,
++                       binfo.actual_seqlen_q, binfo.actual_seqlen_k);
++            if (!cqs_next_skip) {
++                FLASH_NAMESPACE::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, seg_k(n_block - 1), tKsK, tKVcKV, tKVpKV);
++                // This cp_async_fence needs to be in the if block, otherwise the synchronization
++                // isn't right and we get race conditions.
++                cute::cp_async_fence();
++            }
+         }
+ 
+         if (cqs_skip_block) { continue; }

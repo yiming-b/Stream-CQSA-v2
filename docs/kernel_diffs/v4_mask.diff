@@ -1,0 +1,58 @@
+--- next/kernel/v3/csrc/flash_attn/src/mask.h	2026-09-11 21:50:08.946184000 -0400
++++ next/kernel/v4/csrc/flash_attn/src/mask.h	2026-09-11 22:28:52.815191000 -0400
+@@ -186,6 +186,55 @@
+     return (row_or & cqs_blk_range_or(blk_or, blk_size, num_blocks, col_base, col_extent)) == 0;
+ }
+ 
++// next/ v4: the row half of both tile verdicts depends only on the CTA's row
++// block, so it is evaluated once per CTA and only the column half per tile.
++// cqs_tile_masked_rs / cqs_tile_clear_rs return exactly what cqs_tile_masked /
++// cqs_tile_clear return for the same arguments (every early-out is preserved,
++// just split between the two halves).
++struct CqsRowSummary {
++    int64_t row_or;
++    int64_t row_and;
++    bool    row_may_mask;   // cqs_tile_masked's row-side preconditions all hold and row_and != 0
++    bool    row_clear;      // cqs_tile_clear's "row_or == 0" early-out
++};
++
++__forceinline__ __device__ CqsRowSummary cqs_row_summary(const int64_t* blk_or, const int64_t* blk_and,
++                                                         const int blk_size, const int num_blocks,
++                                                         const int row_base, const int row_extent,
++                                                         const int max_seqlen_q) {
++    CqsRowSummary r;
++    r.row_or = 0; r.row_and = 0; r.row_may_mask = false; r.row_clear = false;
++    if (blk_or != nullptr && blk_size > 0) {
++        r.row_or = cqs_blk_range_or(blk_or, blk_size, num_blocks, row_base, row_extent);
++        r.row_clear = (r.row_or == 0);
++    }
++    if (blk_and != nullptr && blk_size > 0
++        && (row_base % blk_size) == 0 && (row_extent % blk_size) == 0
++        && row_base + row_extent <= max_seqlen_q) {
++        r.row_and = cqs_blk_range_and(blk_and, blk_size, num_blocks, row_base, row_extent);
++        r.row_may_mask = (r.row_and != 0);
++    }
++    return r;
++}
++
++__forceinline__ __device__ bool cqs_tile_masked_rs(const CqsRowSummary& r, const int64_t* blk_and,
++                                                   const int blk_size, const int num_blocks,
++                                                   const int col_base, const int col_extent,
++                                                   const int max_seqlen_k) {
++    if (!r.row_may_mask) { return false; }
++    if ((col_base % blk_size) != 0 || (col_extent % blk_size) != 0) { return false; }
++    if (col_base + col_extent > max_seqlen_k) { return false; }
++    return (r.row_and & cqs_blk_range_and(blk_and, blk_size, num_blocks, col_base, col_extent)) != 0;
++}
++
++__forceinline__ __device__ bool cqs_tile_clear_rs(const CqsRowSummary& r, const int64_t* blk_or,
++                                                  const int blk_size, const int num_blocks,
++                                                  const int col_base, const int col_extent) {
++    if (blk_or == nullptr || blk_size <= 0) { return false; }
++    if (r.row_clear) { return true; }
++    return (r.row_or & cqs_blk_range_or(blk_or, blk_size, num_blocks, col_base, col_extent)) == 0;
++}
++
+ template <bool Is_causal, bool Is_local, bool Has_alibi>
+ struct Mask {
+ 

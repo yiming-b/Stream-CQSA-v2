@@ -1,0 +1,75 @@
+--- next/kernel/v5/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 23:17:02.813120000 -0400
++++ next/kernel/v9/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-12 00:36:13.504422000 -0400
+@@ -577,6 +577,33 @@
+ 
+     Tensor lse = softmax.template normalize_softmax_lse<Is_dropout>(acc_o, params.scale_softmax, params.rp_dropout);
+ 
++    Tensor caccO = make_identity_tensor(Shape<Int<kBlockM>, Int<kHeadDim>>{});    // (BLK_M,BLK_K) -> (blk_m,blk_k)
++    Tensor taccOcO = thr_mma.partition_C(caccO);                           // (MMA,MMA_M,MMA_K)
++    // next/ v9: fp32 store right after normalisation so acc_o dies here.
++    // Stream-CQSA: also emit acc_o in fp32. acc_o is normalised at this point,
++    // so it stays in the convex hull of V and cannot overflow; the raw
++    // (unnormalised) accumulator could reach ~L*|V| and would need a wider
++    // range. Written straight from the MMA registers using the accumulator's
++    // own partitioning, so no smem staging and no Kernel_traits change.
++    if (params.cqs_out_acc_ptr != nullptr) {
++        Tensor mOacc = make_tensor(
++            make_gmem_ptr(reinterpret_cast<ElementAccum *>(params.cqs_out_acc_ptr)
++                          + binfo.q_offset(params.o_batch_stride, params.o_row_stride, bidb)),
++            make_shape(binfo.actual_seqlen_q, params.h, params.d),
++            make_stride(params.o_row_stride, params.o_head_stride, _1{}));
++        Tensor gOacc = local_tile(mOacc(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
++                                  make_coord(m_block, 0));
++        Tensor tOgOacc = thr_mma.partition_C(gOacc);
++        const int row_limit = binfo.actual_seqlen_q - m_block * kBlockM;
++        #pragma unroll
++        for (int i = 0; i < size(acc_o); ++i) {
++            const int row = get<0>(taccOcO(i));
++            const int col = get<1>(taccOcO(i));
++            if (row < row_limit && col < params.d) { tOgOacc(i) = acc_o(i); }
++        }
++    }
++
++
+     // Convert acc_o from fp32 to fp16/bf16
+     Tensor rO = FLASH_NAMESPACE::convert_type<Element>(acc_o);
+     Tensor sO = make_tensor(sQ.data(), typename Kernel_traits::SmemLayoutO{});    // (SMEM_M,SMEM_N)
+@@ -609,8 +636,6 @@
+     Tensor tOrO = make_tensor<Element>(shape(tOgO));
+     cute::copy(gmem_tiled_copy_O, tOsO, tOrO);
+ 
+-    Tensor caccO = make_identity_tensor(Shape<Int<kBlockM>, Int<kHeadDim>>{});    // (BLK_M,BLK_K) -> (blk_m,blk_k)
+-    Tensor taccOcO = thr_mma.partition_C(caccO);                           // (MMA,MMA_M,MMA_K)
+     static_assert(decltype(size<0>(taccOcO))::value == 4);
+     // Convert to ((2, 2), MMA_M, MMA_K) then take only the row indices.
+     Tensor taccOcO_row = logical_divide(taccOcO, Shape<_2>{})(make_coord(0, _), _, 0);
+@@ -623,29 +648,6 @@
+         }
+     }
+ 
+-    // Stream-CQSA: also emit acc_o in fp32. acc_o is normalised at this point,
+-    // so it stays in the convex hull of V and cannot overflow; the raw
+-    // (unnormalised) accumulator could reach ~L*|V| and would need a wider
+-    // range. Written straight from the MMA registers using the accumulator's
+-    // own partitioning, so no smem staging and no Kernel_traits change.
+-    if (params.cqs_out_acc_ptr != nullptr) {
+-        Tensor mOacc = make_tensor(
+-            make_gmem_ptr(reinterpret_cast<ElementAccum *>(params.cqs_out_acc_ptr)
+-                          + binfo.q_offset(params.o_batch_stride, params.o_row_stride, bidb)),
+-            make_shape(binfo.actual_seqlen_q, params.h, params.d),
+-            make_stride(params.o_row_stride, params.o_head_stride, _1{}));
+-        Tensor gOacc = local_tile(mOacc(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
+-                                  make_coord(m_block, 0));
+-        Tensor tOgOacc = thr_mma.partition_C(gOacc);
+-        const int row_limit = binfo.actual_seqlen_q - m_block * kBlockM;
+-        #pragma unroll
+-        for (int i = 0; i < size(acc_o); ++i) {
+-            const int row = get<0>(taccOcO(i));
+-            const int col = get<1>(taccOcO(i));
+-            if (row < row_limit && col < params.d) { tOgOacc(i) = acc_o(i); }
+-        }
+-    }
+-
+     // Construct identity layout for sO
+     Tensor cO = make_identity_tensor(make_shape(size<0>(sO), size<1>(sO)));    // (BLK_M,BLK_K) -> (blk_m,blk_k)
+     // Repeat the partitioning with identity layouts

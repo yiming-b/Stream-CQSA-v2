@@ -1,0 +1,103 @@
+--- next/kernel/v1/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 21:36:54.729475000 -0400
++++ next/kernel/v2/csrc/flash_attn/src/flash_fwd_kernel.h	2026-09-11 21:47:09.087224000 -0400
+@@ -178,6 +178,11 @@
+     Tensor sV = make_tensor(sK.data() + size(sK), typename Kernel_traits::SmemLayoutKV{});
+     Tensor sVt = make_tensor(sV.data(), typename Kernel_traits::SmemLayoutVtransposed{});
+     Tensor sVtNoSwizzle = make_tensor(sV.data().get(), typename Kernel_traits::SmemLayoutVtransposedNoSwizzle{});
++    // next/ v2: this tile's kBlockN column group-bits. Loaded once per MIXED
++    // tile (one coalesced int64 per thread) so the per-element mask test in
++    // apply_mask reads shared memory rather than issuing a dependent global
++    // load per score element. Placed after sV; the launch adds the bytes.
++    int64_t *sCqsBits = reinterpret_cast<int64_t *>(smem_ + Kernel_traits::kSmemSize);
+ 
+     typename Kernel_traits::GmemTiledCopyQKV gmem_tiled_copy_QKV;
+     auto gmem_thr_copy_QKV = gmem_tiled_copy_QKV.get_thread_slice(tidx);
+@@ -349,6 +354,20 @@
+         : ((Is_even_MN && Is_causal) ? cute::ceil_div(kBlockM, kBlockN) : cute::ceil_div(kBlockM, kBlockN) + 1);
+     #pragma unroll
+     for (int masking_step = 0; masking_step < n_masking_steps; ++masking_step, --n_block) {
++        // CTA-uniform (block summaries only), so the staging branch below is
++        // taken by every thread or none. Safe to write sCqsBits here: the
++        // previous iteration's readers are behind its second __syncthreads,
++        // and the barrier just below publishes these writes before apply_mask.
++        const int cqs_ts = !params.cqs_enabled ? 0
++            : (FLASH_NAMESPACE::cqs_tile_clear(
++                   params.cqs_blk_or, params.cqs_blk_size, params.cqs_num_blocks,
++                   m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN) ? 0 : 1);
++        if (cqs_ts == 1) {
++            for (int t = tidx; t < kBlockN; t += Kernel_traits::kNThreads) {
++                const int c = n_block * kBlockN + t;
++                sCqsBits[t] = (c < binfo.actual_seqlen_k) ? params.cqs_group_bits[c] : int64_t(0);
++            }
++        }
+         Tensor acc_s = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_M, MMA_N)
+         clear(acc_s);
+         FLASH_NAMESPACE::cp_async_wait<0>();
+@@ -374,16 +393,11 @@
+             FLASH_NAMESPACE::apply_softcap(acc_s, params.softcap);
+         }
+ 
+-        {
+-            const int cqs_ts = !params.cqs_enabled ? 0
+-                : (FLASH_NAMESPACE::cqs_tile_clear(
+-                       params.cqs_blk_or, params.cqs_blk_size, params.cqs_num_blocks,
+-                       m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN) ? 0 : 1);
+-            mask.template apply_mask<Is_causal, Is_even_MN>(
+-                acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16,
+-                m_block * kBlockM, kBlockM, kBlockN, cqs_ts
+-            );
+-        }
++        mask.template apply_mask<Is_causal, Is_even_MN>(
++            acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16,
++            m_block * kBlockM, kBlockM, kBlockN, cqs_ts,
++            cqs_ts == 1 ? sCqsBits : nullptr, n_block * kBlockN
++        );
+ 
+         FLASH_NAMESPACE::cp_async_wait<0>();
+         __syncthreads();
+@@ -455,11 +469,23 @@
+                    params.cqs_blk_and, params.cqs_blk_size, params.cqs_num_blocks,
+                    m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN,
+                    binfo.actual_seqlen_q, binfo.actual_seqlen_k);
++        const int cqs_ts = (!params.cqs_enabled || cqs_skip_block) ? 0
++            : (FLASH_NAMESPACE::cqs_tile_clear(
++                   params.cqs_blk_or, params.cqs_blk_size, params.cqs_num_blocks,
++                   m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN) ? 0 : 1);
+ 
+         Tensor acc_s = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_M, MMA_N)
+         clear(acc_s);
+         FLASH_NAMESPACE::cp_async_wait<0>();
+         __syncthreads();
++        // Every thread is past the previous apply_mask (it precedes this
++        // barrier), so sCqsBits is free; the next __syncthreads publishes it.
++        if (cqs_ts == 1) {
++            for (int t = tidx; t < kBlockN; t += Kernel_traits::kNThreads) {
++                const int c = n_block * kBlockN + t;
++                sCqsBits[t] = (c < binfo.actual_seqlen_k) ? params.cqs_group_bits[c] : int64_t(0);
++            }
++        }
+         FLASH_NAMESPACE::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, seg_v(n_block), tVsV, tKVcKV, tKVpKV);
+         cute::cp_async_fence();
+ 
+@@ -484,16 +510,11 @@
+ 
+         if (cqs_skip_block) { continue; }
+ 
+-        {
+-            const int cqs_ts = !params.cqs_enabled ? 0
+-                : (FLASH_NAMESPACE::cqs_tile_clear(
+-                       params.cqs_blk_or, params.cqs_blk_size, params.cqs_num_blocks,
+-                       m_block * kBlockM, kBlockM, n_block * kBlockN, kBlockN) ? 0 : 1);
+-            mask.template apply_mask</*Causal_mask=*/false>(
+-                acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16,
+-                m_block * kBlockM, kBlockM, kBlockN, cqs_ts
+-            );
+-        }
++        mask.template apply_mask</*Causal_mask=*/false>(
++            acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16,
++            m_block * kBlockM, kBlockM, kBlockN, cqs_ts,
++            cqs_ts == 1 ? sCqsBits : nullptr, n_block * kBlockN
++        );
+ 
+         if (params.cqs_enabled) {
+             softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/true>(

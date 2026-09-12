@@ -1,0 +1,27 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+GPU NVIDIA A100-SXM4-80GB  cpus=48  pipelined merge ON, acc=CPU, itr=1 causal
+
+=== N=262144 ===
+n_par  shared  threads        ms  stages                                                   rel_err
+    1       0        8    1318.7  compute=734 merge=706 gather=333 d2h=64                  2.3e-04
+    1       0       16    1364.2  compute=733 merge=643 gather=376 d2h=65                  2.3e-04
+    1       1        8    1051.2  merge=716 compute=667 gather=124 d2h=69                  2.3e-04
+    1       1       16    1133.4  compute=668 merge=659 gather=187 d2h=65                  2.3e-04
+    2       0        8    1128.8  compute=801 merge=702 gather=332 d2h=290                 2.3e-04
+    2       0       16    1206.3  compute=810 merge=670 gather=357 d2h=266                 2.3e-04
+    2       1        8    1105.8  merge=798 compute=748 d2h=259 gather=66                  2.3e-04
+    2       1       16    1009.6  compute=785 merge=649 d2h=385 gather=98                  2.3e-04
+
+=== N=1048576 ===
+n_par  shared  threads        ms  stages                                                   rel_err
+    1       0        8   12910.9  compute=10546 merge=2460 gather=1374 d2h=253                   -
+    1       0       16   13042.1  compute=10548 merge=2276 gather=1521 d2h=252                   -
+    1       1        8   11862.6  compute=10425 merge=2247 gather=498 d2h=252                    -
+    1       1       16   12165.9  compute=10423 merge=2342 gather=655 d2h=253                    -
+    2       0        8   11700.1  compute=14292 d2h=4281 merge=2101 gather=1366                  -
+    2       0       16   11795.2  compute=14254 d2h=4279 merge=2310 gather=1487                  -
+    2       1        8   11606.1  compute=13080 d2h=7373 merge=2411 gather=287                   -
+    2       1       16   11662.7  compute=14308 d2h=5953 merge=2314 gather=417                   -
+
+wrote /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/bench/../logs/pipeline_opts.json

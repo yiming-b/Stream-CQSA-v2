@@ -1,0 +1,206 @@
+[
+ {
+  "N": 262144,
+  "fa2": {
+   "arm": "fa2",
+   "N": 262144,
+   "host": "della-l07g7",
+   "loadavg_before": 5.13,
+   "ncpu": 48,
+   "s": 0.36089100199751556,
+   "reps_s": [
+    6.3,
+    0.362,
+    0.361
+   ],
+   "peak_gib": 1.2578129768371582,
+   "loadavg_after": 5.2
+  },
+  "sdpa": {
+   "arm": "sdpa",
+   "N": 262144,
+   "host": "della-l07g7",
+   "loadavg_before": 5.16,
+   "ncpu": 48,
+   "s": 0.38533089600969106,
+   "reps_s": [
+    0.412,
+    0.386,
+    0.385
+   ],
+   "peak_gib": 1.2578134536743164,
+   "loadavg_after": 5.16,
+   "rel_err_vs_fa2": 2.2344807803165168e-05
+  },
+  "shipped": {
+   "arm": "shipped",
+   "N": 262144,
+   "host": "della-l07g7",
+   "loadavg_before": 5.42,
+   "ncpu": 48,
+   "kernel": "cqsa_cuda.cpython-311-x86_64-linux-gnu.so",
+   "s": 2.166203094064258,
+   "reps_s": [
+    2.67,
+    2.166,
+    2.299
+   ],
+   "peak_gib": 1.1479105949401855,
+   "loadavg_after": 5.87,
+   "rel_err_vs_fa2": 0.00022447758237831295
+  },
+  "next": {
+   "arm": "next",
+   "N": 262144,
+   "host": "della-l07g7",
+   "loadavg_before": 5.74,
+   "ncpu": 48,
+   "kernel": "cqsa_cuda_next_v11.cpython-311-x86_64-linux-gnu.so",
+   "s": 1.1671265689656138,
+   "reps_s": [
+    1.857,
+    1.244,
+    1.167
+   ],
+   "peak_gib": 1.3218994140625,
+   "loadavg_after": 6.96,
+   "rel_err_vs_fa2": 0.00022436835570260882
+  }
+ },
+ {
+  "N": 1048576,
+  "fa2": {
+   "arm": "fa2",
+   "N": 1048576,
+   "host": "della-l07g7",
+   "loadavg_before": 6.31,
+   "ncpu": 48,
+   "s": 5.96076735900715,
+   "reps_s": [
+    6.765,
+    5.961,
+    5.978
+   ],
+   "peak_gib": 5.031250476837158,
+   "loadavg_after": 5.88
+  },
+  "sdpa": {
+   "arm": "sdpa",
+   "N": 1048576,
+   "host": "della-l07g7",
+   "loadavg_before": 5.5,
+   "ncpu": 48,
+   "s": 6.314261681982316,
+   "reps_s": [
+    6.297,
+    6.314,
+    6.333
+   ],
+   "peak_gib": 5.031250953674316,
+   "loadavg_after": 5.29,
+   "rel_err_vs_fa2": 2.72657853201963e-05
+  },
+  "shipped": {
+   "arm": "shipped",
+   "N": 1048576,
+   "host": "della-l07g7",
+   "loadavg_before": 5.29,
+   "ncpu": 48,
+   "kernel": "cqsa_cuda.cpython-311-x86_64-linux-gnu.so",
+   "s": 15.510696965968236,
+   "reps_s": [
+    16.583,
+    15.511,
+    15.738
+   ],
+   "peak_gib": 4.591630935668945,
+   "loadavg_after": 6.26,
+   "rel_err_vs_fa2": 0.0002968875924125314
+  },
+  "next": {
+   "arm": "next",
+   "N": 1048576,
+   "host": "della-l07g7",
+   "loadavg_before": 5.65,
+   "ncpu": 48,
+   "kernel": "cqsa_cuda_next_v11.cpython-311-x86_64-linux-gnu.so",
+   "s": 9.489427295979112,
+   "reps_s": [
+    10.977,
+    9.489,
+    9.569
+   ],
+   "peak_gib": 5.2864990234375,
+   "loadavg_after": 5.85,
+   "rel_err_vs_fa2": 0.00029685013578273356
+  }
+ },
+ {
+  "N": 2097152,
+  "fa2": {
+   "arm": "fa2",
+   "N": 2097152,
+   "host": "della-l07g7",
+   "loadavg_before": 5.14,
+   "ncpu": 48,
+   "s": 24.18389472400304,
+   "reps_s": [
+    24.77,
+    24.184,
+    24.296
+   ],
+   "peak_gib": 10.062500476837158,
+   "loadavg_after": 4.53
+  },
+  "sdpa": {
+   "arm": "sdpa",
+   "N": 2097152,
+   "host": "della-l07g7",
+   "loadavg_before": 3.77,
+   "ncpu": 48,
+   "s": 25.660347601980902,
+   "reps_s": [
+    25.39,
+    25.66,
+    25.77
+   ],
+   "peak_gib": 10.062500953674316,
+   "loadavg_after": 3.61,
+   "rel_err_vs_fa2": 2.9998167519806884e-05
+  },
+  "shipped": {
+   "arm": "shipped",
+   "N": 2097152,
+   "host": "della-l07g7",
+   "loadavg_before": 3.56,
+   "ncpu": 48,
+   "kernel": "cqsa_cuda.cpython-311-x86_64-linux-gnu.so",
+   "s": 50.97189346898813,
+   "reps_s": [
+    52.708,
+    50.972,
+    51.056
+   ],
+   "peak_gib": 9.183249950408936,
+   "loadavg_after": 3.36,
+   "rel_err_vs_fa2": 0.00045235775178298354
+  },
+  "next": {
+   "arm": "next",
+   "N": 2097152,
+   "host": "della-l07g7",
+   "loadavg_before": 3.5,
+   "ncpu": 48,
+   "kernel": "cqsa_cuda_next_v11.cpython-311-x86_64-linux-gnu.so",
+   "s": 35.30768052104395,
+   "reps_s": [
+    37.811,
+    35.308,
+    35.352
+   ],
+   "peak_gib": 10.5718994140625,
+   "loadavg_after": 4.87,
+   "rel_err_vs_fa2": 0.00045237975427880883
+  }
+ }
+]

@@ -1,0 +1,2051 @@
+{
+ "hardware": "devices[cuda:0=NVIDIA A100-SXM4-80GB 71.0/79.3 GiB] host 751 GiB, 16 cpus, link 25 GB/s",
+ "kernel": "cqsa_cuda_next_v11",
+ "calib": {
+  "pair_rate": 602628711803.1531,
+  "kernel_ratio": 1.4976935304881485,
+  "masked_frac": 0.22,
+  "depth_factor": 1.4641850112288017,
+  "gather_s_per_tok": 1.7327441310044377e-07,
+  "gather_dev_s_per_tok": 1.3476562344294508e-08,
+  "merge_cpu_s_per_tok": 1.0236609903439369e-06,
+  "merge_gpu_s_per_tok": 2.378385397605598e-08,
+  "d2h_s_per_tok": 5.306039226222007e-07,
+  "overlap": 0.85,
+  "overlap_npar2": 0.92,
+  "dist_merge_bytes_per_tok": 8192,
+  "dist_imbalance": 1.35,
+  "dist_fixed_s": 0.4
+ },
+ "bench": [
+  {
+   "N": 65536,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "torch.float16",
+   "causal": true,
+   "budget_gib": 70.0,
+   "rows": [
+    {
+     "config": "mono[flash]",
+     "cfg": {
+      "mode": "mono",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.03368358500301838,
+     "reps_s": [
+      0.0337,
+      0.035
+     ],
+     "peak_gib": 0.3233647346496582,
+     "workspace_gib": 0.2519536018371582,
+     "acc_rel_fro": 0.000283414157007725,
+     "acc_max_abs": 0.0001275196516599686,
+     "acc_max_rel": 0.0003359141114955578
+    },
+    {
+     "config": "mono[sdpa]",
+     "cfg": {
+      "mode": "mono",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "sdpa",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.035664621042087674,
+     "reps_s": [
+      0.0357,
+      0.0369
+     ],
+     "peak_gib": 0.3233652114868164,
+     "workspace_gib": 0.2519540786743164,
+     "acc_rel_fro": 0.00028343350042038854,
+     "acc_max_abs": 0.0001275196516599686,
+     "acc_max_rel": 0.0003359141114955578
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=1",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.0805384530685842,
+     "reps_s": [
+      0.0805,
+      0.0815
+     ],
+     "peak_gib": 0.726356029510498,
+     "workspace_gib": 0.592444896697998,
+     "acc_rel_fro": 0.00018950925274216775,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=2",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.06351931195240468,
+     "reps_s": [
+      0.0635,
+      0.0645
+     ],
+     "peak_gib": 0.726356029510498,
+     "workspace_gib": 0.592444896697998,
+     "acc_rel_fro": 0.00018950925274216775,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=4",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.06621050299145281,
+     "reps_s": [
+      0.0662,
+      0.0666
+     ],
+     "peak_gib": 0.726356029510498,
+     "workspace_gib": 0.592444896697998,
+     "acc_rel_fro": 0.00018950925274216775,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.08383055496960878,
+     "reps_s": [
+      0.0838,
+      0.0869
+     ],
+     "peak_gib": 0.6208610534667969,
+     "workspace_gib": 0.4869499206542969,
+     "acc_rel_fro": 0.00018959206047751474,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.06581294594798237,
+     "reps_s": [
+      0.0658,
+      0.0691
+     ],
+     "peak_gib": 0.7021598815917969,
+     "workspace_gib": 0.5682487487792969,
+     "acc_rel_fro": 0.00018959206047751474,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.06785525695886463,
+     "reps_s": [
+      0.0679,
+      0.0712
+     ],
+     "peak_gib": 0.7292594909667969,
+     "workspace_gib": 0.5953483581542969,
+     "acc_rel_fro": 0.00018959206047751474,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=1 acc=cpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.2773633759934455,
+     "reps_s": [
+      0.3051,
+      0.2774
+     ],
+     "peak_gib": 0.3402099609375,
+     "workspace_gib": 0.206298828125,
+     "acc_rel_fro": 0.00018959205937775007,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=1 acc=cpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.43200320401228964,
+     "reps_s": [
+      0.4941,
+      0.432
+     ],
+     "peak_gib": 0.4215087890625,
+     "workspace_gib": 0.28759765625,
+     "acc_rel_fro": 0.00018959205937775007,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=1 acc=cpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.2926095019793138,
+     "reps_s": [
+      0.2926,
+      0.3015
+     ],
+     "peak_gib": 0.4486083984375,
+     "workspace_gib": 0.314697265625,
+     "acc_rel_fro": 0.00018959205937775007,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=1",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.1712206850061193,
+     "reps_s": [
+      0.1712,
+      0.172
+     ],
+     "peak_gib": 0.5816650390625,
+     "workspace_gib": 0.44775390625,
+     "acc_rel_fro": 0.0001881897402546305,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=2",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.11535277403891087,
+     "reps_s": [
+      0.1154,
+      0.116
+     ],
+     "peak_gib": 0.5816650390625,
+     "workspace_gib": 0.44775390625,
+     "acc_rel_fro": 0.0001881897402546305,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=4",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.10134627996012568,
+     "reps_s": [
+      0.1013,
+      0.1016
+     ],
+     "peak_gib": 0.5816650390625,
+     "workspace_gib": 0.44775390625,
+     "acc_rel_fro": 0.0001881897402546305,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.3310575180221349,
+     "reps_s": [
+      0.3321,
+      0.3311
+     ],
+     "peak_gib": 0.3941650390625,
+     "workspace_gib": 0.26025390625,
+     "acc_rel_fro": 0.0001881897402546305,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.20038425794336945,
+     "reps_s": [
+      0.2004,
+      0.2006
+     ],
+     "peak_gib": 0.3941650390625,
+     "workspace_gib": 0.26025390625,
+     "acc_rel_fro": 0.0001881897402546305,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.18887756508775055,
+     "reps_s": [
+      0.1889,
+      0.19
+     ],
+     "peak_gib": 0.3941650390625,
+     "workspace_gib": 0.26025390625,
+     "acc_rel_fro": 0.0001881897402546305,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=2 acc=cpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.7043037069961429,
+     "reps_s": [
+      0.7043,
+      0.9203
+     ],
+     "peak_gib": 0.2589111328125,
+     "workspace_gib": 0.125,
+     "acc_rel_fro": 0.00018818962570623285,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=2 acc=cpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.6720078130019829,
+     "reps_s": [
+      0.672,
+      0.7285
+     ],
+     "peak_gib": 0.2589111328125,
+     "workspace_gib": 0.125,
+     "acc_rel_fro": 0.00018818962570623285,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    },
+    {
+     "config": "cqsa itr=2 acc=cpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.8320028629386798,
+     "reps_s": [
+      0.8365,
+      0.832
+     ],
+     "peak_gib": 0.2589111328125,
+     "workspace_gib": 0.125,
+     "acc_rel_fro": 0.00018818962570623285,
+     "acc_max_abs": 6.52503481698985e-05,
+     "acc_max_rel": 0.00017188341126207754
+    }
+   ],
+   "pick": {
+    "config": "mono[flash]",
+    "cfg": {
+     "mode": "mono",
+     "itr": 1,
+     "acc": "gpu",
+     "stream_from_host": false,
+     "n_par": 1,
+     "shared_chunks": null,
+     "world": 1,
+     "mono_backend": "flash",
+     "label": ""
+    },
+    "ok": true,
+    "s": 0.03368358500301838,
+    "reps_s": [
+     0.0337,
+     0.035
+    ],
+    "peak_gib": 0.3233647346496582,
+    "workspace_gib": 0.2519536018371582,
+    "acc_rel_fro": 0.000283414157007725,
+    "acc_max_abs": 0.0001275196516599686,
+    "acc_max_rel": 0.0003359141114955578
+   }
+  },
+  {
+   "N": 262144,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "torch.float16",
+   "causal": true,
+   "budget_gib": 70.0,
+   "rows": [
+    {
+     "config": "mono[flash]",
+     "cfg": {
+      "mode": "mono",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.40497956692706794,
+     "reps_s": [
+      0.405,
+      0.4107
+     ],
+     "peak_gib": 1.2667241096496582,
+     "workspace_gib": 1.0078129768371582,
+     "acc_rel_fro": 0.000312111480162024,
+     "acc_max_abs": 5.5310618385179255e-05,
+     "acc_max_rel": 0.00039800021975980787
+    },
+    {
+     "config": "mono[sdpa]",
+     "cfg": {
+      "mode": "mono",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "sdpa",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.42905337596312165,
+     "reps_s": [
+      0.4291,
+      0.4331
+     ],
+     "peak_gib": 1.2667245864868164,
+     "workspace_gib": 1.0078134536743164,
+     "acc_rel_fro": 0.0003122066240084104,
+     "acc_max_abs": 5.5310618385179255e-05,
+     "acc_max_rel": 0.00039800021975980787
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=1",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.6673217689385638,
+     "reps_s": [
+      0.6673,
+      0.6689
+     ],
+     "peak_gib": 2.8786439895629883,
+     "workspace_gib": 2.3697328567504883,
+     "acc_rel_fro": 0.00020513082936147236,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=2",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.6023609769763425,
+     "reps_s": [
+      0.6024,
+      0.603
+     ],
+     "peak_gib": 2.8786439895629883,
+     "workspace_gib": 2.3697328567504883,
+     "acc_rel_fro": 0.00020513082936147236,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=4",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.6023456379771233,
+     "reps_s": [
+      0.6038,
+      0.6023
+     ],
+     "peak_gib": 2.8786439895629883,
+     "workspace_gib": 2.3697328567504883,
+     "acc_rel_fro": 0.00020513082936147236,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.6783646709518507,
+     "reps_s": [
+      0.6784,
+      0.6893
+     ],
+     "peak_gib": 2.4521565437316895,
+     "workspace_gib": 1.9432454109191895,
+     "acc_rel_fro": 0.00020508882044212374,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.6160027519799769,
+     "reps_s": [
+      0.616,
+      0.6256
+     ],
+     "peak_gib": 2.7740559577941895,
+     "workspace_gib": 2.2651448249816895,
+     "acc_rel_fro": 0.00020508882044212374,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.6245107140857726,
+     "reps_s": [
+      0.6245,
+      0.6364
+     ],
+     "peak_gib": 2.8813557624816895,
+     "workspace_gib": 2.3724446296691895,
+     "acc_rel_fro": 0.00020508882044212374,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=1 acc=cpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.9792805769247934,
+     "reps_s": [
+      0.9896,
+      0.9793
+     ],
+     "peak_gib": 1.330810546875,
+     "workspace_gib": 0.8218994140625,
+     "acc_rel_fro": 0.0002050887293724076,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=1 acc=cpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 1.2024050269974396,
+     "reps_s": [
+      1.2024,
+      1.2643
+     ],
+     "peak_gib": 1.6527099609375,
+     "workspace_gib": 1.143798828125,
+     "acc_rel_fro": 0.0002050887293724076,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=1 acc=cpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 1.1414702630136162,
+     "reps_s": [
+      1.1773,
+      1.1415
+     ],
+     "peak_gib": 1.760009765625,
+     "workspace_gib": 1.2510986328125,
+     "acc_rel_fro": 0.0002050887293724076,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=1",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.9911378399701789,
+     "reps_s": [
+      0.9911,
+      0.9965
+     ],
+     "peak_gib": 2.2999267578125,
+     "workspace_gib": 1.791015625,
+     "acc_rel_fro": 0.00019977403901812483,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=2",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.7268226440064609,
+     "reps_s": [
+      0.7268,
+      0.727
+     ],
+     "peak_gib": 2.2999267578125,
+     "workspace_gib": 1.791015625,
+     "acc_rel_fro": 0.00019977403901812483,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=4",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.7249019420705736,
+     "reps_s": [
+      0.7253,
+      0.7249
+     ],
+     "peak_gib": 2.2999267578125,
+     "workspace_gib": 1.791015625,
+     "acc_rel_fro": 0.00019977403901812483,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 1.7383439340628684,
+     "reps_s": [
+      1.7383,
+      1.7383
+     ],
+     "peak_gib": 1.5499267578125,
+     "workspace_gib": 1.041015625,
+     "acc_rel_fro": 0.00019977403901812483,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 1.089317076955922,
+     "reps_s": [
+      1.0893,
+      1.0921
+     ],
+     "peak_gib": 1.5499267578125,
+     "workspace_gib": 1.041015625,
+     "acc_rel_fro": 0.00019977403901812483,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 0.7974730919813737,
+     "reps_s": [
+      0.7975,
+      0.809
+     ],
+     "peak_gib": 1.5499267578125,
+     "workspace_gib": 1.041015625,
+     "acc_rel_fro": 0.00019977403901812483,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=2 acc=cpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 2.4923700960353017,
+     "reps_s": [
+      2.4924,
+      2.53
+     ],
+     "peak_gib": 1.0089111328125,
+     "workspace_gib": 0.5,
+     "acc_rel_fro": 0.00019977388259850918,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=2 acc=cpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 2.355798876960762,
+     "reps_s": [
+      2.3768,
+      2.3558
+     ],
+     "peak_gib": 1.0089111328125,
+     "workspace_gib": 0.5,
+     "acc_rel_fro": 0.00019977388259850918,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    },
+    {
+     "config": "cqsa itr=2 acc=cpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 2.3579485199879855,
+     "reps_s": [
+      2.3677,
+      2.3579
+     ],
+     "peak_gib": 1.0089111328125,
+     "workspace_gib": 0.5,
+     "acc_rel_fro": 0.00019977388259850918,
+     "acc_max_abs": 2.7818037517534852e-05,
+     "acc_max_rel": 0.00020017105880400238
+    }
+   ],
+   "pick": {
+    "config": "mono[flash]",
+    "cfg": {
+     "mode": "mono",
+     "itr": 1,
+     "acc": "gpu",
+     "stream_from_host": false,
+     "n_par": 1,
+     "shared_chunks": null,
+     "world": 1,
+     "mono_backend": "flash",
+     "label": ""
+    },
+    "ok": true,
+    "s": 0.40497956692706794,
+    "reps_s": [
+     0.405,
+     0.4107
+    ],
+    "peak_gib": 1.2667241096496582,
+    "workspace_gib": 1.0078129768371582,
+    "acc_rel_fro": 0.000312111480162024,
+    "acc_max_abs": 5.5310618385179255e-05,
+    "acc_max_rel": 0.00039800021975980787
+   }
+  },
+  {
+   "N": 1048576,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "torch.float16",
+   "causal": true,
+   "budget_gib": 70.0,
+   "rows": [
+    {
+     "config": "mono[flash]",
+     "cfg": {
+      "mode": "mono",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 6.115168094984256,
+     "reps_s": [
+      6.1152,
+      6.144
+     ],
+     "peak_gib": 5.040161609649658,
+     "workspace_gib": 4.031250476837158,
+     "acc_rel_fro": 0.0005519818819590561,
+     "acc_max_abs": 2.639164570332475e-05,
+     "acc_max_rel": 0.0003199253396090908
+    },
+    {
+     "config": "mono[sdpa]",
+     "cfg": {
+      "mode": "mono",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "sdpa",
+      "label": ""
+     },
+     "ok": true,
+     "s": 6.483533000107855,
+     "reps_s": [
+      6.4835,
+      6.5104
+     ],
+     "peak_gib": 5.040162086486816,
+     "workspace_gib": 4.031250953674316,
+     "acc_rel_fro": 0.0005521021698058781,
+     "acc_max_abs": 2.639164570332475e-05,
+     "acc_max_rel": 0.0003199253396090908
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=1",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 8.338990023941733,
+     "reps_s": [
+      8.339,
+      8.3438
+     ],
+     "peak_gib": 11.487823963165283,
+     "workspace_gib": 9.478912830352783,
+     "acc_rel_fro": 0.0002829401947419601,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=2",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 8.06749523896724,
+     "reps_s": [
+      8.0714,
+      8.0675
+     ],
+     "peak_gib": 11.487823963165283,
+     "workspace_gib": 9.478912830352783,
+     "acc_rel_fro": 0.0002829401947419601,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=4",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 8.024566408945248,
+     "reps_s": [
+      8.0267,
+      8.0246
+     ],
+     "peak_gib": 11.487823963165283,
+     "workspace_gib": 9.478912830352783,
+     "acc_rel_fro": 0.0002829401947419601,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 8.650318791042082,
+     "reps_s": [
+      8.6503,
+      8.7011
+     ],
+     "peak_gib": 9.775760650634766,
+     "workspace_gib": 7.766849517822266,
+     "acc_rel_fro": 0.0002829970356295673,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 8.41195597301703,
+     "reps_s": [
+      8.412,
+      8.4549
+     ],
+     "peak_gib": 11.062259674072266,
+     "workspace_gib": 9.053348541259766,
+     "acc_rel_fro": 0.0002829970356295673,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=1 acc=gpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 8.454813858959824,
+     "reps_s": [
+      8.4548,
+      8.4986
+     ],
+     "peak_gib": 11.491092681884766,
+     "workspace_gib": 9.482181549072266,
+     "acc_rel_fro": 0.0002829970356295673,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=1 acc=cpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 9.536856818012893,
+     "reps_s": [
+      9.5369,
+      9.5872
+     ],
+     "peak_gib": 5.29541015625,
+     "workspace_gib": 3.2864990234375,
+     "acc_rel_fro": 0.00028299696013530675,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=1 acc=cpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 9.244576127966866,
+     "reps_s": [
+      9.2446,
+      9.2555
+     ],
+     "peak_gib": 6.5819091796875,
+     "workspace_gib": 4.572998046875,
+     "acc_rel_fro": 0.00028299696013530675,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=1 acc=cpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 1,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 9.480608850019053,
+     "reps_s": [
+      9.4806,
+      9.5565
+     ],
+     "peak_gib": 7.0107421875,
+     "workspace_gib": 5.0018310546875,
+     "acc_rel_fro": 0.00028299696013530675,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=1",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 9.828888118965551,
+     "reps_s": [
+      9.8289,
+      9.8307
+     ],
+     "peak_gib": 9.1729736328125,
+     "workspace_gib": 7.1640625,
+     "acc_rel_fro": 0.00022477623678226802,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=2",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 8.56145949207712,
+     "reps_s": [
+      8.5615,
+      8.5651
+     ],
+     "peak_gib": 9.1729736328125,
+     "workspace_gib": 7.1640625,
+     "acc_rel_fro": 0.00022477623678226802,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=4",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": false,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 8.561057765036821,
+     "reps_s": [
+      8.5611,
+      8.5886
+     ],
+     "peak_gib": 9.1729736328125,
+     "workspace_gib": 7.1640625,
+     "acc_rel_fro": 0.00022477623678226802,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 12.911977114970796,
+     "reps_s": [
+      12.9127,
+      12.912
+     ],
+     "peak_gib": 6.1729736328125,
+     "workspace_gib": 4.1640625,
+     "acc_rel_fro": 0.00022477623678226802,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 9.924452332081273,
+     "reps_s": [
+      9.9245,
+      9.9493
+     ],
+     "peak_gib": 6.1729736328125,
+     "workspace_gib": 4.1640625,
+     "acc_rel_fro": 0.00022477623678226802,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=2 acc=gpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "gpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 9.119939125957899,
+     "reps_s": [
+      9.1199,
+      9.1222
+     ],
+     "peak_gib": 6.1729736328125,
+     "workspace_gib": 4.1640625,
+     "acc_rel_fro": 0.00022477623678226802,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=2 acc=cpu npar=1 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 1,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 14.56685798894614,
+     "reps_s": [
+      14.8005,
+      14.5669
+     ],
+     "peak_gib": 4.0089111328125,
+     "workspace_gib": 2.0,
+     "acc_rel_fro": 0.00022477581661337694,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=2 acc=cpu npar=2 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 2,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 11.233239408931695,
+     "reps_s": [
+      11.2332,
+      11.3045
+     ],
+     "peak_gib": 4.0089111328125,
+     "workspace_gib": 2.0,
+     "acc_rel_fro": 0.00022477581661337694,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    },
+    {
+     "config": "cqsa itr=2 acc=cpu npar=4 host",
+     "cfg": {
+      "mode": "cqsa",
+      "itr": 2,
+      "acc": "cpu",
+      "stream_from_host": true,
+      "n_par": 4,
+      "shared_chunks": null,
+      "world": 1,
+      "mono_backend": "flash",
+      "label": ""
+     },
+     "ok": true,
+     "s": 9.007297035073861,
+     "reps_s": [
+      9.1279,
+      9.0073
+     ],
+     "peak_gib": 4.0089111328125,
+     "workspace_gib": 2.0,
+     "acc_rel_fro": 0.00022477581661337694,
+     "acc_max_abs": 1.7785504972250843e-05,
+     "acc_max_rel": 0.00021559980693624227
+    }
+   ],
+   "pick": {
+    "config": "mono[flash]",
+    "cfg": {
+     "mode": "mono",
+     "itr": 1,
+     "acc": "gpu",
+     "stream_from_host": false,
+     "n_par": 1,
+     "shared_chunks": null,
+     "world": 1,
+     "mono_backend": "flash",
+     "label": ""
+    },
+    "ok": true,
+    "s": 6.115168094984256,
+    "reps_s": [
+     6.1152,
+     6.144
+    ],
+    "peak_gib": 5.040161609649658,
+    "workspace_gib": 4.031250476837158,
+    "acc_rel_fro": 0.0005519818819590561,
+    "acc_max_abs": 2.639164570332475e-05,
+    "acc_max_rel": 0.0003199253396090908
+   }
+  }
+ ],
+ "compare": [
+  {
+   "cfg": "cqsa itr=1 acc=gpu npar=2",
+   "N": 65536,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "float16",
+   "causal": true,
+   "itr": 1,
+   "cqsa_vs_mono": {
+    "rel_fro": 0.00022112130796400002,
+    "max_abs": 0.0009176731109619141,
+    "bit_identical": false
+   },
+   "mono_vs_fp64": {
+    "rel_fro": 0.000283414157007725,
+    "max_abs": 0.0001275196516599686,
+    "max_rel": 0.0003359141114955578
+   },
+   "cqsa_vs_fp64": {
+    "rel_fro": 0.00018950925274216775,
+    "max_abs": 6.52503481698985e-05,
+    "max_rel": 0.00017188341126207754
+   },
+   "verdict": "exact (within rounding: 2.2e-04 vs the monolithic kernel's own 2.8e-04 error against float64)",
+   "perf_mono": {
+    "s": 0.037195189972408116,
+    "reps_s": [
+     0.0372,
+     0.0388
+    ],
+    "peak_gib": 0.3144536018371582,
+    "workspace_gib": 0.2519536018371582
+   },
+   "perf_cqsa": {
+    "s": 0.07878206903114915,
+    "reps_s": [
+     0.0788,
+     0.0809
+    ],
+    "peak_gib": 0.779944896697998,
+    "workspace_gib": 0.592444896697998
+   }
+  },
+  {
+   "cfg": "cqsa itr=1 acc=cpu npar=1 host",
+   "N": 65536,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "float16",
+   "causal": true,
+   "itr": 1,
+   "cqsa_vs_mono": {
+    "rel_fro": 0.00022081447630745737,
+    "max_abs": 0.0009176731109619141,
+    "bit_identical": false
+   },
+   "mono_vs_fp64": {
+    "rel_fro": 0.000283414157007725,
+    "max_abs": 0.0001275196516599686,
+    "max_rel": 0.0003359141114955578
+   },
+   "cqsa_vs_fp64": {
+    "rel_fro": 0.00018959205937775007,
+    "max_abs": 6.52503481698985e-05,
+    "max_rel": 0.00017188341126207754
+   },
+   "verdict": "exact (within rounding: 2.2e-04 vs the monolithic kernel's own 2.8e-04 error against float64)",
+   "perf_mono": {
+    "s": 0.03684523107949644,
+    "reps_s": [
+     0.0368,
+     0.0393
+    ],
+    "peak_gib": 0.3223881721496582,
+    "workspace_gib": 0.2519536018371582
+   },
+   "perf_cqsa": {
+    "s": 0.29469498398248106,
+    "reps_s": [
+     0.2947,
+     0.3118
+    ],
+    "peak_gib": 0.4017333984375,
+    "workspace_gib": 0.206298828125
+   }
+  },
+  {
+   "cfg": "cqsa itr=2 acc=gpu npar=2",
+   "N": 65536,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "float16",
+   "causal": true,
+   "itr": 2,
+   "cqsa_vs_mono": {
+    "rel_fro": 0.0002340935534428315,
+    "max_abs": 0.0009176731109619141,
+    "bit_identical": false
+   },
+   "mono_vs_fp64": {
+    "rel_fro": 0.000283414157007725,
+    "max_abs": 0.0001275196516599686,
+    "max_rel": 0.0003359141114955578
+   },
+   "cqsa_vs_fp64": {
+    "rel_fro": 0.0001881897402546305,
+    "max_abs": 6.52503481698985e-05,
+    "max_rel": 0.00017188341126207754
+   },
+   "verdict": "exact (within rounding: 2.3e-04 vs the monolithic kernel's own 2.8e-04 error against float64)",
+   "perf_mono": {
+    "s": 0.037770522059872746,
+    "reps_s": [
+     0.0378,
+     0.0383
+    ],
+    "peak_gib": 0.3223881721496582,
+    "workspace_gib": 0.2519536018371582
+   },
+   "perf_cqsa": {
+    "s": 0.12178215698804706,
+    "reps_s": [
+     0.1218,
+     0.1245
+    ],
+    "peak_gib": 0.6431884765625,
+    "workspace_gib": 0.44775390625
+   }
+  },
+  {
+   "cfg": "cqsa itr=1 acc=gpu npar=2",
+   "N": 262144,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "float16",
+   "causal": true,
+   "itr": 1,
+   "cqsa_vs_mono": {
+    "rel_fro": 0.00022752622104701465,
+    "max_abs": 0.0009579658508300781,
+    "bit_identical": false
+   },
+   "mono_vs_fp64": {
+    "rel_fro": 0.000312111480162024,
+    "max_abs": 5.5310618385179255e-05,
+    "max_rel": 0.00039800021975980787
+   },
+   "cqsa_vs_fp64": {
+    "rel_fro": 0.00020513082936147236,
+    "max_abs": 2.7818037517534852e-05,
+    "max_rel": 0.00020017105880400238
+   },
+   "verdict": "exact (within rounding: 2.3e-04 vs the monolithic kernel's own 3.1e-04 error against float64)",
+   "perf_mono": {
+    "s": 0.4141548640327528,
+    "reps_s": [
+     0.4142,
+     0.4221
+    ],
+    "peak_gib": 1.2657475471496582,
+    "workspace_gib": 1.0078129768371582
+   },
+   "perf_cqsa": {
+    "s": 0.6533619730034843,
+    "reps_s": [
+     0.6534,
+     0.6654
+    ],
+    "peak_gib": 3.1276674270629883,
+    "workspace_gib": 2.3697328567504883
+   }
+  },
+  {
+   "cfg": "cqsa itr=1 acc=cpu npar=1 host",
+   "N": 262144,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "float16",
+   "causal": true,
+   "itr": 1,
+   "cqsa_vs_mono": {
+    "rel_fro": 0.00022742281133882934,
+    "max_abs": 0.0009579658508300781,
+    "bit_identical": false
+   },
+   "mono_vs_fp64": {
+    "rel_fro": 0.000312111480162024,
+    "max_abs": 5.5310618385179255e-05,
+    "max_rel": 0.00039800021975980787
+   },
+   "cqsa_vs_fp64": {
+    "rel_fro": 0.0002050887293724076,
+    "max_abs": 2.7818037517534852e-05,
+    "max_rel": 0.00020017105880400238
+   },
+   "verdict": "exact (within rounding: 2.3e-04 vs the monolithic kernel's own 3.1e-04 error against float64)",
+   "perf_mono": {
+    "s": 0.4181804049294442,
+    "reps_s": [
+     0.4182,
+     0.4216
+    ],
+    "peak_gib": 1.2657475471496582,
+    "workspace_gib": 1.0078129768371582
+   },
+   "perf_cqsa": {
+    "s": 0.9856680890079588,
+    "reps_s": [
+     1.082,
+     0.9857
+    ],
+    "peak_gib": 1.579833984375,
+    "workspace_gib": 0.8218994140625
+   }
+  },
+  {
+   "cfg": "cqsa itr=2 acc=gpu npar=2",
+   "N": 262144,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "float16",
+   "causal": true,
+   "itr": 2,
+   "cqsa_vs_mono": {
+    "rel_fro": 0.0002432776278421433,
+    "max_abs": 0.0009579658508300781,
+    "bit_identical": false
+   },
+   "mono_vs_fp64": {
+    "rel_fro": 0.000312111480162024,
+    "max_abs": 5.5310618385179255e-05,
+    "max_rel": 0.00039800021975980787
+   },
+   "cqsa_vs_fp64": {
+    "rel_fro": 0.00019977403901812483,
+    "max_abs": 2.7818037517534852e-05,
+    "max_rel": 0.00020017105880400238
+   },
+   "verdict": "exact (within rounding: 2.4e-04 vs the monolithic kernel's own 3.1e-04 error against float64)",
+   "perf_mono": {
+    "s": 0.4176017069257796,
+    "reps_s": [
+     0.4176,
+     0.4234
+    ],
+    "peak_gib": 1.2657475471496582,
+    "workspace_gib": 1.0078129768371582
+   },
+   "perf_cqsa": {
+    "s": 0.7583402639720589,
+    "reps_s": [
+     0.7583,
+     0.7702
+    ],
+    "peak_gib": 2.5489501953125,
+    "workspace_gib": 1.791015625
+   }
+  },
+  {
+   "cfg": "cqsa itr=1 acc=gpu npar=2",
+   "N": 1048576,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "float16",
+   "causal": true,
+   "itr": 1,
+   "cqsa_vs_mono": {
+    "rel_fro": 0.00031433403084971193,
+    "max_abs": 0.0008325576782226562,
+    "bit_identical": false
+   },
+   "mono_vs_fp64": {
+    "rel_fro": 0.0005519818819590561,
+    "max_abs": 2.639164570332475e-05,
+    "max_rel": 0.0003199253396090908
+   },
+   "cqsa_vs_fp64": {
+    "rel_fro": 0.0002829401947419601,
+    "max_abs": 1.7785504972250843e-05,
+    "max_rel": 0.00021559980693624227
+   },
+   "verdict": "exact (within rounding: 3.1e-04 vs the monolithic kernel's own 5.5e-04 error against float64)",
+   "perf_mono": {
+    "s": 6.132522850995883,
+    "reps_s": [
+     6.1325,
+     6.1804
+    ],
+    "peak_gib": 5.039185047149658,
+    "workspace_gib": 4.031250476837158
+   },
+   "perf_cqsa": {
+    "s": 8.283139977953397,
+    "reps_s": [
+     8.2831,
+     8.326
+    ],
+    "peak_gib": 12.486847400665283,
+    "workspace_gib": 9.478912830352783
+   }
+  },
+  {
+   "cfg": "cqsa itr=1 acc=cpu npar=1 host",
+   "N": 1048576,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "float16",
+   "causal": true,
+   "itr": 1,
+   "cqsa_vs_mono": {
+    "rel_fro": 0.0003143386009004151,
+    "max_abs": 0.0008325576782226562,
+    "bit_identical": false
+   },
+   "mono_vs_fp64": {
+    "rel_fro": 0.0005519818819590561,
+    "max_abs": 2.639164570332475e-05,
+    "max_rel": 0.0003199253396090908
+   },
+   "cqsa_vs_fp64": {
+    "rel_fro": 0.00028299696013530675,
+    "max_abs": 1.7785504972250843e-05,
+    "max_rel": 0.00021559980693624227
+   },
+   "verdict": "exact (within rounding: 3.1e-04 vs the monolithic kernel's own 5.5e-04 error against float64)",
+   "perf_mono": {
+    "s": 6.173382850014605,
+    "reps_s": [
+     6.1734,
+     6.2033
+    ],
+    "peak_gib": 5.039185047149658,
+    "workspace_gib": 4.031250476837158
+   },
+   "perf_cqsa": {
+    "s": 9.47740143793635,
+    "reps_s": [
+     9.4774,
+     9.597
+    ],
+    "peak_gib": 6.29443359375,
+    "workspace_gib": 3.2864990234375
+   }
+  },
+  {
+   "cfg": "cqsa itr=2 acc=gpu npar=2",
+   "N": 1048576,
+   "B": 1,
+   "H": 8,
+   "D": 64,
+   "dtype": "float16",
+   "causal": true,
+   "itr": 2,
+   "cqsa_vs_mono": {
+    "rel_fro": 0.0003652123982959983,
+    "max_abs": 0.0008325576782226562,
+    "bit_identical": false
+   },
+   "mono_vs_fp64": {
+    "rel_fro": 0.0005519818819590561,
+    "max_abs": 2.639164570332475e-05,
+    "max_rel": 0.0003199253396090908
+   },
+   "cqsa_vs_fp64": {
+    "rel_fro": 0.00022477623678226802,
+    "max_abs": 1.7785504972250843e-05,
+    "max_rel": 0.00021559980693624227
+   },
+   "verdict": "exact (within rounding: 3.7e-04 vs the monolithic kernel's own 5.5e-04 error against float64)",
+   "perf_mono": {
+    "s": 6.1719003489706665,
+    "reps_s": [
+     6.1719,
+     6.2022
+    ],
+    "peak_gib": 5.039185047149658,
+    "workspace_gib": 4.031250476837158
+   },
+   "perf_cqsa": {
+    "s": 8.694516779039986,
+    "reps_s": [
+     8.6945,
+     8.7401
+    ],
+    "peak_gib": 10.1719970703125,
+    "workspace_gib": 7.1640625
+   }
+  }
+ ],
+ "plans": [
+  {
+   "N": 65536,
+   "plan": "monolithic",
+   "est": 0.028508215502370145,
+   "reason": "monolithic fits (0.29 GiB <= 60.3 GiB budget) and is the fastest feasible configuration (0.03 s predicted)",
+   "measured_pick": "mono[flash]"
+  },
+  {
+   "N": 262144,
+   "plan": "monolithic",
+   "est": 0.4561314480379223,
+   "reason": "monolithic fits (1.16 GiB <= 60.3 GiB budget) and is the fastest feasible configuration (0.46 s predicted)",
+   "measured_pick": "mono[flash]"
+  },
+  {
+   "N": 1048576,
+   "plan": "monolithic",
+   "est": 7.298103168606757,
+   "reason": "monolithic fits (4.64 GiB <= 60.3 GiB budget) and is the fastest feasible configuration (7.30 s predicted)",
+   "measured_pick": "mono[flash]"
+  }
+ ]
+}

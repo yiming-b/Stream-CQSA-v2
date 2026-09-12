@@ -1,0 +1,40 @@
+--- next/kernel/v6/csrc/flash_attn/src/mask.h	2026-09-11 23:17:02.812067000 -0400
++++ next/kernel/v7/csrc/flash_attn/src/mask.h	2026-09-11 23:54:47.523639000 -0400
+@@ -299,6 +299,37 @@
+                                                            const int max_seqlen_k) {
+     CqsColSummary c;
+     c.col_or = 0; c.col_and = 0; c.col_ok = false;
++    // next/ v7 fast path: a full, block-aligned tile spanning exactly two
++    // summary blocks (kBlockN == 2 * kCqsBlk) that lies inside the sequence.
++    // Then b1 == b0 + 2 <= num_blocks, both range reductions are two adjacent
++    // words, and each is one 16-byte load when the address allows it. This is
++    // every tile but the ragged last one, and it returns exactly what the
++    // general path below returns for the same arguments.
++    if (col_extent == 2 * kCqsBlk && col_base >= 0 && (col_base % kCqsBlk) == 0
++        && col_base + col_extent <= max_seqlen_k
++        && (col_base / kCqsBlk) + 2 <= num_blocks) {
++        const int b0 = col_base / kCqsBlk;
++        if (blk_or != nullptr) {
++            const int64_t* p = blk_or + b0;
++            if ((reinterpret_cast<uintptr_t>(p) & 15) == 0) {
++                const longlong2 w = *reinterpret_cast<const longlong2*>(p);
++                c.col_or = w.x | w.y;
++            } else {
++                c.col_or = p[0] | p[1];
++            }
++        }
++        if (blk_and != nullptr) {
++            const int64_t* p = blk_and + b0;
++            if ((reinterpret_cast<uintptr_t>(p) & 15) == 0) {
++                const longlong2 w = *reinterpret_cast<const longlong2*>(p);
++                c.col_and = w.x & w.y;
++            } else {
++                c.col_and = p[0] & p[1];
++            }
++            c.col_ok = true;
++        }
++        return c;
++    }
+     if (blk_or != nullptr) {
+         c.col_or = cqs_blk_range_or_c(blk_or, num_blocks, col_base, col_extent);
+     }

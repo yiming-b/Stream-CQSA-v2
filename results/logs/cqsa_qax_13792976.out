@@ -1,0 +1,13 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+calibrate: mono 0.114s -> pair_rate 6.04e+11/s; kernel_ratio 1.50; gather 183.6 ns/tok (host) 13.6 (dev); merge 1370.6 ns/tok (cpu) 24.6 (gpu); d2h 864.5 ns/tok; task_overhead 1.68 ms (c=31 vs 7); itr2/itr1 1.90 -> depth_factor 1.14
+c= 3 l=2 itr=1: tasks=   3 L= 699050     8.56 s (model  10.94)  peak 13.94 GiB  err 3.3e-04
+c= 3 l=2 itr=2: tasks=   9 L= 466033     9.03 s (model  16.59)  peak 8.65 GiB  err 2.7e-04
+c= 7 l=3 itr=1: tasks=   7 L= 449389     8.45 s (model  10.96)  peak 11.06 GiB  err 2.7e-04
+c= 7 l=3 itr=2: tasks=  49 L= 192595     9.93 s (model  16.16)  peak 6.17 GiB  err 2.1e-04
+c=13 l=4 itr=1: tasks=  13 L= 322638     8.54 s (model  10.99)  peak 9.09 GiB  err 2.4e-04
+c=13 l=4 itr=2: tasks= 169 L=  99273    11.49 s (model  15.80)  peak 6.17 GiB  err 2.0e-04
+c=21 l=5 itr=1: tasks=  21 L= 249660     8.52 s (model  11.02)  peak 7.96 GiB  err 2.2e-04
+c=31 l=6 itr=1: tasks=  31 L= 202950     8.96 s (model  11.05)  peak 7.34 GiB  err 2.1e-04
+c=57 l=8 itr=1: tasks=  57 L= 147168     9.41 s (model  11.13)  peak 7.02 GiB  err 2.1e-04
+c=73 l=9 itr=1: tasks=  73 L= 129276     9.68 s (model  11.18)  peak 6.92 GiB  err 2.0e-04
