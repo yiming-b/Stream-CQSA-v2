@@ -9,6 +9,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      single:
+        description: "build only one CUDA wheel (python 3.11, torch 2.6.0) to diagnose"
+        type: boolean
+        default: false
 
 jobs:
   pure:
@@ -31,8 +36,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.11", "3.12"]
-        torch: ["2.5.1", "2.6.0"]
+        python: ${{ fromJSON(inputs.single && '["3.11"]' || '["3.10", "3.11", "3.12"]') }}
+        torch: ${{ fromJSON(inputs.single && '["2.6.0"]' || '["2.5.1", "2.6.0"]') }}
         cuda: ["12.4.1"]
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +73,11 @@ jobs:
           NVCC_THREADS: "2"
         run: |
           echo "CUDA_HOME=$CUDA_HOME"; "$CUDA_HOME/bin/nvcc" --version | tail -1
+          echo "--- machine before the build"; nproc; free -g; df -h / /tmp | tail -2
+          rm -f /tmp/*.run 2>/dev/null || true       # the toolkit runfile (4 GB) is not needed any more
+          df -h / | tail -1
           python setup.py bdist_wheel --dist-dir dist
+          echo "--- machine after the build"; free -g; df -h / | tail -1
       - name: tag the wheel with its torch/CUDA
         run: |
           pip install wheel
