@@ -1209,3 +1209,13 @@ forward and backward exact (causal and non-causal); hdim128 skipped by the probe
 (`native_supports`) and served by the classic engine. Full suite 303 passed.
 `attention()` routes by the probe, so the wave kernel now covers fp16 and bf16
 at head dim 64 automatically.
+
+### Release wheel built on della
+
+`native/wheel_build.sh` (torch 2.10, CUDA 13, sm80+sm90; cqsa_cuda, cqsa_cuda_nc and
+cqsa_native; ~2.5 h with two builds sharing the node) ->
+`dist/stream_cqsa-2.1.0-1cu130torch210sm8090-cp311-cp311-linux_x86_64.whl` (230 MB).
+Verified in a fresh venv: all three extensions import, `attention()` fp16 causal
+through the wave kernel 1.3e-4 vs SDPA, bf16 non-causal wave 2.6e-3 (bf16 precision).
+Attached to the GitHub release by hand (the hosted runner of a private repo could not
+build it; now public, the workflow's own matrix covers torch 2.5/2.6 + cu124).
