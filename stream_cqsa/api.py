@@ -257,9 +257,8 @@ def _pick_wave(kernel: str, kw: dict, is_causal: bool, q: torch.Tensor, directio
     # the wave engine keeps its accumulator (and, in the backward, the fp32 gradients) on the device
     if kw.get("low_memory") or kw.get("accumulate_on_gpu") is False:
         return False
-    if q.shape[-1] != 64 or q.dtype != torch.float16:     # the shipped native build covers hdim64 fp16
-        return False
-    return True
+    from .native_wave import native_supports
+    return native_supports(q.dtype, int(q.shape[-1]))      # depends on the kernel set the extension was built with
 
 
 # ---------------------------------------------------------------------------

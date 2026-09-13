@@ -67,6 +67,35 @@ def native_available() -> bool:
         return False
 
 
+_SUPPORT: dict = {}
+
+
+def native_supports(dtype, D: int, device="cuda") -> bool:
+    """Whether the compiled ``cqsa_native`` has kernels for this dtype and head dim.
+
+    The build's kernel set is not recorded in the extension, so this probes once per
+    (dtype, D) with a 128-token wave and caches the answer; a build without the
+    instantiation fails the probe with a clear TORCH_CHECK message."""
+    key = (str(dtype), int(D))
+    if key in _SUPPORT:
+        return _SUPPORT[key]
+    ok = False
+    try:
+        ext = native_ext()
+        dev = torch.device(device)
+        q = torch.zeros((128, 1, int(D)), device=dev, dtype=dtype)
+        bits = torch.zeros(128, dtype=torch.int64, device=dev)
+        summ = torch.zeros(2, dtype=torch.int64, device=dev)
+        cu = torch.tensor([0, 128], dtype=torch.int32, device=dev)
+        ext.fwd_wave(q, q, q, cu, 128, 128, bits, summ, summ, cu, None, None, 0, float(D) ** -0.5, True,
+                     uniform_S=128, uniform_W=1)
+        ok = True
+    except Exception:
+        ok = False
+    _SUPPORT[key] = ok
+    return ok
+
+
 # ---------------------------------------------------------------------------
 # Tasks (shape-only; cached)
 # ---------------------------------------------------------------------------

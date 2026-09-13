@@ -1186,3 +1186,26 @@ them on the CPU); gradients and results are cast to the output dtype where
 they sit and moved afterwards, so the fp32 copy never has to fit on the
 device. `stream_cqsa_forward(..., out_device="acc")` leaves the result where
 the accumulator is.
+
+### Native kernel, common kernel set (fp16 + bf16, hdim 64 + 128)
+
+First `CQSA_KERNEL_SET=common` build of `cqsa_native`: the eight hdim64 and backward
+objects compiled normally, but all four hdim128 forward files sat in ptxas for over
+70 min (v11's own hdim128 files take ~20 min) -- the wave instantiations at head dim
+128 (mode 3, and the runtime wave branch inside mode 2) reproduce the ptxas pathology
+of v10's non-causal mode 1. Gated at compile time: `Wave_ok = (kHeadDim == 64)`;
+at head dim 128 the native extension compiles exactly as v11 and `fwd_wave` rejects
+the call with a message, so `attention()` routes hdim128 to the classic engine
+(`native_supports()` probes the build once per dtype/head-dim and caches the answer).
+Wheel workflow on GitHub: the pure wheel builds; the CUDA jobs are terminated by the
+hosted runner with SIGTERM shortly after the compile starts, in four runs with every
+variable removed (single job, one process, two archs, full toolkit). The CUDA wheel
+for our torch/CUDA pair is built on della instead (`CQSA_BUILD_NATIVE=1` adds the
+native extension) and attached to the release by hand.
+
+Result (build `native_common64`, 62 min): fp16 and bf16 head-dim-64 forwards with
+the wave modes, all four backwards. `tests/test_wave_shapes.py`: bf16/hdim64 wave
+forward and backward exact (causal and non-causal); hdim128 skipped by the probe
+(`native_supports`) and served by the classic engine. Full suite 303 passed.
+`attention()` routes by the probe, so the wave kernel now covers fp16 and bf16
+at head dim 64 automatically.
