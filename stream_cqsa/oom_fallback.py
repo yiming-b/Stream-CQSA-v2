@@ -157,7 +157,7 @@ def attention_oom_safe(
             try:
                 out, cinfo = stream_cqsa_forward(q, k, v, itr=depth, causal=causal,
                                                  scale=scale, stream_from_host=host,
-                                                 low_memory=low_mem)
+                                                 low_memory=low_mem, verbose=verbose)
                 break
             except Exception as exc:                            # noqa: BLE001
                 if not _is_oom(exc):
@@ -304,7 +304,7 @@ def stream_cqsa_auto(q, k, v, *, causal=False, scale=None, return_info=False,
             if not need_host and q.device.type == "cpu":
                 continue                          # cannot run device-resident now
             out, info = stream_cqsa_forward(q, k, v, causal=causal, scale=scale,
-                                            **cfg)
+                                            verbose=verbose, **cfg)
             info = dict(info)
             info.update(config=cfg, rungs_tried=tried)
             out = out.to(device=out_device if not need_host else out.device,

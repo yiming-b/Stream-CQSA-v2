@@ -44,6 +44,7 @@ CPU_THREADS = int(os.environ.get("CQSA_CPU_THREADS", "8"))
 # (H*D*4 bytes per packed token) are its memory cost. 2M tokens = 4 GiB at H=8, D=64.
 DEFAULT_MAX_WAVE_TOKENS = int(os.environ.get("CQSA_MAX_WAVE_TOKENS", str(2 << 20)))
 from .reference import chunk_layout
+from .progress import Progress, verbose_enabled, describe_call, expected_seconds
 
 SEG_ALIGN = 128
 _ext = None
@@ -232,7 +233,8 @@ def _budget_tokens(device, per_token: int, reserved: int, fraction: float, cap: 
 def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: bool = True, scale: Optional[float] = None,
                  itr: int = 1, c: int = 7, interest_set: Sequence[int] = (0, 1, 3),
                  max_wave_tokens: Optional[int] = None, max_wave_subproblems: Optional[int] = None,
-                 memory_fraction: float = 0.85, device=None, pool_slots: Optional[int] = None):
+                 memory_fraction: float = 0.85, device=None, pool_slots: Optional[int] = None,
+                 verbose: Optional[bool] = None):
     """
     Exact attention by CQS decomposition on the native wave kernel.
 
@@ -278,6 +280,15 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
                 wave_tokens=[sum(int(t.local_size) for t in w) for w in waves], max_wave_tokens=int(max_tokens),
                 itr=int(itr), c=int(c), interest_set=tuple(interest_set), host_resident=not on_device,
                 pool_slots=(None if pool is None else pool.n_slots))
+    total_tokens = sum(int(t.local_size) for t in tasks) * B
+    progress = Progress(
+        total_tokens, enabled=verbose_enabled(verbose), unit="tok",
+        banner=describe_call(what="forward (native wave kernel)", N=N, B=B, H=H, D=D, c=int(c), itr=int(itr),
+                             n_tasks=len(tasks), causal=bool(causal), device=str(dev),
+                             extra=f"{len(waves)} wave{'s' if len(waves) != 1 else ''} of {info['wave_sizes']} subproblems"
+                                   + (f", chunk pool of {pool.n_slots} slots" if pool is not None else ", Q/K/V read in place")),
+        expected_s=expected_seconds(N=N, B=B, H=H, D=D, itr=int(itr), c=int(c), causal=bool(causal),
+                                    stream_from_host=not on_device))
     q_tm = k_tm = v_tm = None
     if not on_device:
         # token-major host views (a copy only if the storage is not already token-major)
@@ -314,6 +325,9 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
                                               tb.blk_cu, bb, tb.bb_cu, SEG_ALIGN, scale, bool(causal),
                                               uniform_S=int(tb.S), uniform_W=int(tb.W))
             ext.wave_merge(acc, acc_l, acc_m, out_pack, lse_pack, tb.order, tb.seg, tb.uniq, int(tb.S))
+            if progress.enabled:
+                torch.cuda.synchronize(dev)      # the bar reports finished work, not queued launches
+            progress.update(sum(int(t.local_size) for t in wave))
             del out_pack, lse_pack, tb, bb
         out[b].copy_((acc / acc_l.clamp_min(1e-30).unsqueeze(-1)).transpose(0, 1))
         lse_b = acc_m + torch.log(acc_l.clamp_min(1e-30))
@@ -322,6 +336,7 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
     del acc, acc_l, acc_m
     if pool is not None:
         pool.release()
+    progress.close(f"{len(tasks)} subproblems in {len(waves)} wave{'s' if len(waves) != 1 else ''}")
     return out, info
 
 
@@ -331,7 +346,7 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
 def wave_backward(q, k, v, out, dout, lse, *, causal: bool = True, scale: Optional[float] = None,
                   itr: int = 1, c: int = 7, interest_set: Sequence[int] = (0, 1, 3),
                   max_wave_tokens: Optional[int] = None, max_wave_subproblems: Optional[int] = None,
-                  memory_fraction: float = 0.85, device=None):
+                  memory_fraction: float = 0.85, device=None, verbose: Optional[bool] = None):
     """
     Exact attention backward on the native wave kernel (global-lse formulation).
 
@@ -367,6 +382,13 @@ def wave_backward(q, k, v, out, dout, lse, *, causal: bool = True, scale: Option
         with _cpu_threads(CPU_THREADS):
             q_tm, k_tm, v_tm, do_tm = (t.transpose(1, 2).contiguous() for t in (q, k, v, dout))
     info = dict(n_subproblems=len(tasks), n_waves=len(waves), wave_sizes=[len(w) for w in waves], max_wave_tokens=int(max_tokens))
+    progress = Progress(
+        sum(int(t.local_size) for t in tasks) * B, enabled=verbose_enabled(verbose), unit="tok",
+        banner=describe_call(what="backward (native wave kernel)", N=N, B=B, H=H, D=D, c=int(c), itr=int(itr),
+                             n_tasks=len(tasks), causal=bool(causal), device=str(dev),
+                             extra=f"{len(waves)} wave{'s' if len(waves) != 1 else ''} of {info['wave_sizes']} subproblems"),
+        expected_s=expected_seconds(N=N, B=B, H=H, D=D, itr=int(itr), c=int(c), causal=bool(causal),
+                                    direction="bwd", stream_from_host=not on_device))
     for b in range(B):
         if on_device:
             qt, kt, vt, dot = (t[b].transpose(0, 1) for t in (q, k, v, dout))     # [N, H, D] views
@@ -393,9 +415,13 @@ def wave_backward(q, k, v, out, dout, lse, *, causal: bool = True, scale: Option
             ext.wave_scatter_add(dq[b], dq_p, tb.order, tb.seg, tb.uniq)
             ext.wave_scatter_add(dk[b], dk_p, tb.order, tb.seg, tb.uniq)
             ext.wave_scatter_add(dv[b], dv_p, tb.order, tb.seg, tb.uniq)
+            if progress.enabled:
+                torch.cuda.synchronize(dev)
+            progress.update(sum(int(t.local_size) for t in wave))
             del dq_p, dk_p, dv_p, tb
     res = tuple(g.transpose(1, 2).to(q.dtype) for g in (dq, dk, dv))
     del dq, dk, dv
+    progress.close(f"{len(tasks)} subproblems in {len(waves)} wave{'s' if len(waves) != 1 else ''}")
     return res, info
 
 
@@ -404,25 +430,26 @@ def wave_backward(q, k, v, out, dout, lse, *, causal: bool = True, scale: Option
 # ---------------------------------------------------------------------------
 class _WaveAttn(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, q, k, v, causal, scale, itr, c, interest_set, bwd_itr, max_wave_tokens):
+    def forward(ctx, q, k, v, causal, scale, itr, c, interest_set, bwd_itr, max_wave_tokens, verbose):
         out, info = wave_forward(q, k, v, causal=causal, scale=scale, itr=itr, c=c, interest_set=interest_set,
-                                 max_wave_tokens=max_wave_tokens)
+                                 max_wave_tokens=max_wave_tokens, verbose=verbose)
         ctx.save_for_backward(q, k, v, out, info["lse"])
-        ctx.meta = (causal, scale, itr if bwd_itr is None else bwd_itr, c, tuple(interest_set), max_wave_tokens)
+        ctx.meta = (causal, scale, itr if bwd_itr is None else bwd_itr, c, tuple(interest_set), max_wave_tokens, verbose)
         return out
 
     @staticmethod
     def backward(ctx, dout):
         q, k, v, out, lse = ctx.saved_tensors
-        causal, scale, itr, c, interest_set, mwt = ctx.meta
+        causal, scale, itr, c, interest_set, mwt, verbose = ctx.meta
         (dq, dk, dv), _ = wave_backward(q, k, v, out, dout.to(q.dtype), lse, causal=causal, scale=scale, itr=itr, c=c,
-                                        interest_set=interest_set, max_wave_tokens=mwt)
-        return dq, dk, dv, None, None, None, None, None, None, None
+                                        interest_set=interest_set, max_wave_tokens=mwt, verbose=verbose)
+        return dq, dk, dv, None, None, None, None, None, None, None, None
 
 
-def wave_attention(q, k, v, *, causal=True, scale=None, itr=1, c=7, interest_set=(0, 1, 3), bwd_itr=None, max_wave_tokens=None):
+def wave_attention(q, k, v, *, causal=True, scale=None, itr=1, c=7, interest_set=(0, 1, 3), bwd_itr=None, max_wave_tokens=None,
+                   verbose=None):
     """Differentiable Stream-CQSA attention on the native wave kernel; returns fp32 ``[B, H, N, D]``."""
-    return _WaveAttn.apply(q, k, v, causal, scale, itr, c, tuple(interest_set), bwd_itr, max_wave_tokens)
+    return _WaveAttn.apply(q, k, v, causal, scale, itr, c, tuple(interest_set), bwd_itr, max_wave_tokens, verbose)
 
 
 # ---------------------------------------------------------------------------

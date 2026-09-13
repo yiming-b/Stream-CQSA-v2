@@ -1094,3 +1094,18 @@ Files: `next/native/` (sources, build, tests, bench, README), engine
 `next/pkg/stream_cqsa/native_wave.py`, results `next/logs/native_test_13812109.out`,
 `next/logs/wave_bench.{json,png}`, `next/logs/wave_timeline.png`; repo copies
 under `native/`, `stream_cqsa/native_wave.py`, `results/native/`.
+
+## Phase 7: verbose progress reporting
+
+`stream_cqsa/progress.py`: `verbose=True` (or `CQSA_VERBOSE=1`) on
+`stream_cqsa_forward/backward`, `stream_cqsa_attn`/`StreamCQSAAttention`,
+`attention_oom_safe`, `stream_cqsa_auto`, `auto_attention`, `wave_forward/
+backward/attention`. Prints a banner (what is computed, N/B/H/D, c, itr,
+number of subproblems, device, concurrency/accumulator placement, streaming;
+plus the cost model's expected time), a tqdm bar over subproblems -- packed
+tokens for waves, so unequal waves advance proportionally -- with elapsed and
+remaining time (plain single-line bar when tqdm is absent), and a closing line
+with the total and any OOM retries. Escalation keeps the bar's total honest
+(children replace the failed parent). The monolithic short-circuit prints one
+line saying no decomposition was needed. Everything goes to stderr. Verified on
+vis1 through every entry point, including the fallback under a 3 GiB cap.

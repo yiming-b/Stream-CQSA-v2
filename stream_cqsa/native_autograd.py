@@ -53,10 +53,10 @@ __all__ = ["stream_cqsa_attn", "StreamCQSAAttention"]
 class _StreamCQSANative(torch.autograd.Function):
     @staticmethod
     def forward(ctx, q, k, v, causal, scale, itr, c, interest_set,
-                stream_from_host, accumulate_on_gpu, max_parallel, sorted_gather, bwd_itr):
+                stream_from_host, accumulate_on_gpu, max_parallel, sorted_gather, bwd_itr, verbose=None):
         out32, info = stream_cqsa_forward(
             q, k, v,
-            itr=itr, causal=bool(causal), scale=scale,
+            itr=itr, causal=bool(causal), scale=scale, verbose=verbose,
             sorted_gather=bool(sorted_gather),
             max_parallel=max_parallel,
             accumulate_on_gpu=bool(accumulate_on_gpu),
@@ -81,6 +81,7 @@ class _StreamCQSANative(torch.autograd.Function):
             sorted_gather=bool(sorted_gather),
             out_dtype=q.dtype,
             monolithic=bool(info.get("monolithic", False)),
+            verbose=verbose,
         )
         # Match the inputs' device, not the accumulator's. The forward returns
         # its output wherever the accumulator lived, and with itr="auto" that
@@ -116,7 +117,7 @@ class _StreamCQSANative(torch.autograd.Function):
             itr=bwd_itr, causal=cfg["causal"], scale=cfg["scale"],
             sorted_gather=cfg["sorted_gather"],
             c=cfg["c"], interest_set=cfg["interest_set"],
-            stream_from_host=host,
+            stream_from_host=host, verbose=cfg.get("verbose"),
             # One knob for the whole call: the backward places its dQ/dK/dV the
             # same way the forward placed its accumulator, so a caller who asked
             # to keep O(N) terms off the device gets that in both directions.
@@ -127,7 +128,7 @@ class _StreamCQSANative(torch.autograd.Function):
         dt = cfg["out_dtype"]
         to = lambda g, ref: g.to(device=ref.device, dtype=dt)
         return (to(dq, q), to(dk, k), to(dv, v),
-                None, None, None, None, None, None, None, None, None, None)
+                None, None, None, None, None, None, None, None, None, None, None)
 
 
 def stream_cqsa_attn(
@@ -145,6 +146,7 @@ def stream_cqsa_attn(
     max_parallel: int | None = None,
     sorted_gather: bool = True,
     bwd_itr: int | str = "auto",
+    verbose: bool | None = None,
 ) -> torch.Tensor:
     """
     Exact attention with autograd support.
@@ -175,7 +177,7 @@ def stream_cqsa_attn(
         )
     return _StreamCQSANative.apply(
         q, k, v, causal, scale, itr, c, tuple(interest_set),
-        stream_from_host, accumulate_on_gpu, max_parallel, sorted_gather, bwd_itr)
+        stream_from_host, accumulate_on_gpu, max_parallel, sorted_gather, bwd_itr, verbose)
 
 
 class StreamCQSAAttention(torch.nn.Module):
@@ -187,14 +189,14 @@ class StreamCQSAAttention(torch.nn.Module):
                  stream_from_host: bool = False,
                  accumulate_on_gpu: bool = True,
                  max_parallel: int | None = None,
-                 bwd_itr: int | str = "auto") -> None:
+                 bwd_itr: int | str = "auto", verbose: bool | None = None) -> None:
         super().__init__()
         self.cfg: dict[str, Any] = dict(
             causal=causal, scale=scale, itr=itr, c=c,
             interest_set=tuple(interest_set),
             stream_from_host=stream_from_host,
             accumulate_on_gpu=accumulate_on_gpu,
-            max_parallel=max_parallel, bwd_itr=bwd_itr)
+            max_parallel=max_parallel, bwd_itr=bwd_itr, verbose=verbose)
 
     def forward(self, q: torch.Tensor, k: torch.Tensor,
                 v: torch.Tensor) -> torch.Tensor:

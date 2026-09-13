@@ -547,5 +547,6 @@ def auto_attention(q, k, v, *, causal: bool = False, scale: float | None = None,
         from .distributed import dist_stream_cqsa_forward
         out, _ = dist_stream_cqsa_forward(qq, kk, vv, causal=causal, scale=scale, **kw)
     else:
+        kw.setdefault("verbose", verbose)
         out, _ = stream_cqsa_forward(qq, kk, vv, causal=causal, scale=scale, **kw)
     return out, p

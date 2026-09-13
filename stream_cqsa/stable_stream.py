@@ -62,6 +62,8 @@ from concurrent.futures import ThreadPoolExecutor
 import torch
 
 from .reference import all_paths, group_bits_for_path, segment_block_base
+from .progress import Progress, verbose_enabled, describe_call, expected_seconds
+import sys
 
 __all__ = [
     "StableAccumulator",
@@ -1116,6 +1118,9 @@ def stream_cqsa_forward(
     # next/: run only these task path_idx values. Used by the multi-device
     # driver, where each rank takes a shard of the identical task list.
     task_subset: Sequence[int] | None = None,
+    # Announce the call, show a progress bar over the subproblems with the time
+    # remaining (stderr). None defers to the CQSA_VERBOSE environment variable.
+    verbose: bool | None = None,
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """
     Stream-CQSA exact attention forward.
@@ -1227,6 +1232,9 @@ def stream_cqsa_forward(
             softmax_scale=float(scale), causal=bool(causal), return_lse=True,
         )
         out = out_bhd.transpose(1, 2).float()
+        if verbose_enabled(verbose):
+            print(f"Stream-CQSA: forward of N={N} tokens fits in device memory -- one monolithic FlashAttention call, no decomposition",
+                  file=sys.stderr, flush=True)
         return out, {
             "n_subproblems": 0,
             "itr": 0,
@@ -1316,6 +1324,15 @@ def stream_cqsa_forward(
         "est_task_gib": max((t.estimated_mem_gib for t in tasks), default=0.0),
         "blocks_per_task": (max(1, -(-max((t.local_size for t in tasks), default=1) // 128)) * B * H),
     }
+
+    progress = Progress(
+        len(tasks), enabled=verbose_enabled(verbose), unit="subproblem",
+        banner=describe_call(what="forward", N=N, B=B, H=H, D=D, c=int(c), itr=int(itr), n_tasks=len(tasks),
+                             causal=bool(causal), device=str(device),
+                             extra=f"{n_par} in flight, accumulator on {acc_device.type}"
+                                   + (", Q/K/V streamed from host memory" if host_resident else "")),
+        expected_s=expected_seconds(N=N, B=B, H=H, D=D, itr=int(itr), c=int(c), causal=bool(causal),
+                                    acc=acc_device.type, stream_from_host=host_resident, n_par=int(n_par)))
 
     streams = [torch.cuda.Stream(device=device) for _ in range(n_par)] if on_cuda else [None]
     if on_cuda:
@@ -1652,6 +1669,7 @@ def stream_cqsa_forward(
           try:
               run_one(task, slot % max(1, len(streams)))
               slot += 1
+              progress.update(1)
           except RuntimeError as exc:
               if not is_oom(exc):
                   raise
@@ -1687,6 +1705,7 @@ def stream_cqsa_forward(
                   slot_done = [None] * max(1, len(streams))
                   task.status = "queued"
                   pending.insert(0, task)
+                  progress.set_total(progress.done + len(pending))
               else:
                   # Concurrency is already one, so the subproblem itself does not
                   # fit. Decompose it a further level and retry its children.
@@ -1725,6 +1744,7 @@ def stream_cqsa_forward(
                       max((int(t.itr) for t in kids), default=int(task.itr)))
                   slot_done = [None] * max(1, len(streams))
                   pending[0:0] = kids
+                  progress.set_total(progress.done + len(pending))
               if info["oom_retries"] > oom_retry_budget:
                   raise
     if merge_pool is not None:
@@ -1764,6 +1784,7 @@ def stream_cqsa_forward(
     trace.record(stage="run_total", task=None, start=t_start,
                  end=t_start + info["wall_s"], status="done", stream_id=-1)
     info["stage_totals_ms"] = trace.stage_totals_ms() if trace.enabled else {}
+    progress.close(f"{info['n_subproblems']} subproblems" + (f", {info['oom_retries']} OOM retries" if info['oom_retries'] else ""))
     return out.to(device), info
 
 
@@ -1867,7 +1888,7 @@ def _global_dpsum(dout: torch.Tensor, out: torch.Tensor,
 def _stream_cqsa_backward_host(
     q, k, v, dout, out, lse, tasks, *,
     B, H, N, D, device, scale, causal, max_parallel, cpu_threads, bwd_fn,
-    trace=None, accumulate_on_gpu=False,
+    trace=None, accumulate_on_gpu=False, progress=None,
 ):
     """
     Host-resident backward. Q/K/V/dO/O/lse stay in CPU memory and each
@@ -2039,6 +2060,8 @@ def _stream_cqsa_backward_host(
 
     with _cpu_threads(cpu_threads):
         for i, task in enumerate(tasks):
+            if progress is not None and i > 0:
+                progress.update(1)
             slot = i % n_par
             # Backpressure: reusing a slot means its previous gradients must be
             # scattered first. This bounds in-flight work to n_par working sets
@@ -2180,6 +2203,7 @@ def stream_cqsa_backward(
     trace: "TraceRecorder | None" = None,
     bwd_info: dict | None = None,
     task_subset: Sequence[int] | None = None,
+    verbose: bool | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Stream-CQSA exact attention backward. All of q/k/v/dout/out are
@@ -2284,13 +2308,23 @@ def stream_cqsa_backward(
         tasks_at_depth = tasks
         while True:
             try:
-                return _stream_cqsa_backward_host(
+                progress = Progress(
+                    len(tasks_at_depth), enabled=verbose_enabled(verbose), unit="subproblem",
+                    banner=describe_call(what="backward", N=N, B=B, H=H, D=D, c=int(c), itr=int(depth),
+                                         n_tasks=len(tasks_at_depth), causal=bool(causal), device=str(device),
+                                         extra="Q/K/V/dO streamed from host memory"),
+                    expected_s=expected_seconds(N=N, B=B, H=H, D=D, itr=int(depth), c=int(c), causal=bool(causal),
+                                                direction="bwd", stream_from_host=True))
+                res = _stream_cqsa_backward_host(
                     q, k, v, dout, out, lse, tasks_at_depth,
                     B=B, H=H, N=N, D=D, device=device, scale=float(scale),
                     causal=bool(causal), max_parallel=max_parallel,
                     cpu_threads=cpu_threads, bwd_fn=flash_attn_bwd_cqs_global_lse,
-                    trace=trace, accumulate_on_gpu=bool(accumulate_on_gpu),
+                    trace=trace, accumulate_on_gpu=bool(accumulate_on_gpu), progress=progress,
                 )
+                progress.update(1)
+                progress.close(f"{len(tasks_at_depth)} subproblems")
+                return res
             except RuntimeError as exc:
                 if not is_oom(exc):
                     raise
@@ -2391,10 +2425,17 @@ def stream_cqsa_backward(
     retries = 0
     # See the forward: the depth bound is what terminates, this only backstops.
     retry_budget = 64 + 16 * max(1, len(pending)) * max(1, depth_cap)
+    progress = Progress(
+        len(pending), enabled=verbose_enabled(verbose), unit="subproblem",
+        banner=describe_call(what="backward", N=N, B=B, H=H, D=D, c=int(c), itr=int(itr), n_tasks=len(pending),
+                             causal=bool(causal), device=str(device),
+                             extra=f"gradients accumulated on {'device' if accumulate_on_gpu else 'host'}"),
+        expected_s=expected_seconds(N=N, B=B, H=H, D=D, itr=int(itr), c=int(c), causal=bool(causal), direction="bwd"))
     while pending:
         task = pending.pop(0)
         try:
             _run_bwd_task(task)
+            progress.update(1)
         except RuntimeError as exc:
             if not is_oom(exc):
                 raise
@@ -2428,5 +2469,7 @@ def stream_cqsa_backward(
                 bwd_info["itr_reached"] = max(bwd_info["itr_reached"],
                                               max(int(t.itr) for t in kids))
             pending[0:0] = kids
+            progress.set_total(progress.done + len(pending))
 
+    progress.close(f"{progress.done} subproblems" + (f", {retries} OOM retries" if retries else ""))
     return dq.transpose(1, 2), dk.transpose(1, 2), dv.transpose(1, 2)

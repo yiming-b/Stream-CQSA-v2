@@ -97,6 +97,19 @@ itr="auto")`. Planner: `plan(N, B, H, D, dtype, causal, hardware, direction="fwd
 `quick_bench()`. Adapters: `flex_inner(score_mod, extra_mask_mod)`. Multi-device:
 `distributed.dist_stream_cqsa_forward/_backward` under `torch.distributed`.
 
+**Seeing what it does.** Every entry point takes `verbose=True` (or set
+`CQSA_VERBOSE=1`): the call announces how it was decomposed, shows a tqdm bar over
+the subproblems (or waves) with the elapsed time and the time remaining, and closes
+with the total. Before the first subproblem finishes the banner carries the planner's
+cost-model estimate; the bar's estimate takes over from there. Output goes to stderr.
+
+```
+Stream-CQSA: forward of N=262K tokens (B=1, H=8, D=64, causal) decomposed over c=7 at depth itr=1:
+             7 subproblems on cuda | 1 in flight, accumulator on cuda, Q/K/V streamed from host memory | expected ~0.6s (cost model)
+Stream-CQSA: 100%|██████████| 7/7 [00:01<00:00,  3.81subproblem/s]
+Stream-CQSA: done in 1.8s (7 subproblems)
+```
+
 Notebooks (executed, outputs included): `notebooks/stream_cqsa_v2_demo.ipynb` runs every
 feature on one GPU; `notebooks/oom_boundary_demo.ipynb` sweeps N explicitly under a memory cap
 and shows the baseline matching Stream-CQSA below the boundary and OOM-ing above it while
