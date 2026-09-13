@@ -104,8 +104,10 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     // Wave launches: uniform layout (cu_seqlens == nullptr, causal) -> mode 3; varlen
     // layout (non-causal) -> mode 2 with the runtime flag. A causal varlen wave is not
     // a supported combination (flash_api.cpp rejects it).
+    TORCH_CHECK(!params.cqs_wave || Kernel_traits::kHeadDim == 64,
+                "the native wave kernel is built for head_dim=64 only (head_dim=128 runs on the classic engine)");
     const int cqs_mode = !params.cqs_enabled ? 0
-        : ((params.cqs_wave && params.cu_seqlens_q == nullptr) ? 3 : (Is_causal ? 1 : 2));
+        : ((params.cqs_wave && params.cu_seqlens_q == nullptr && Kernel_traits::kHeadDim == 64) ? 3 : (Is_causal ? 1 : 2));
     CQS_MODE_SWITCH(cqs_mode, Is_causal, CqsModeConst, [&] {
     BOOL_SWITCH(is_even_MN, IsEvenMNConst, [&] {
         EVENK_SWITCH(is_even_K, IsEvenKConst, [&] {

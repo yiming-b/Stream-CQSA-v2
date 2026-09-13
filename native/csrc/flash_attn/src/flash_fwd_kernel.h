@@ -69,8 +69,13 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     // bidb * stride, cu_seqlens == nullptr). Mode 2 (non-causal, runtime CQS) also serves
     // the non-causal wave in the varlen layout at runtime (its compile-time wave
     // instantiation, mode 4, did not come out of ptxas).
-    constexpr bool Is_wave_uniform = (Cqs_mode >= 3);
-    const bool Is_wave_varlen = (Cqs_mode == 2) && params.cqs_wave;
+    // Wave modes exist for head dim 64 only: at head dim 128 the wave instantiations
+    // (and the runtime wave branch of mode 2) do not come out of ptxas in bounded time,
+    // the same pathology as v10's non-causal mode 1. Head dim 128 compiles as v11 and
+    // is served by the classic engine.
+    constexpr bool Wave_ok = (Kernel_traits::kHeadDim == 64);
+    constexpr bool Is_wave_uniform = Wave_ok && (Cqs_mode >= 3);
+    const bool Is_wave_varlen = Wave_ok && (Cqs_mode == 2) && params.cqs_wave;
 
     using Element = typename Kernel_traits::Element;
     using ElementAccum = typename Kernel_traits::ElementAccum;

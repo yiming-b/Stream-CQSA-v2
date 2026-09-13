@@ -40,7 +40,7 @@ kept query–key pair is counted exactly once, so the result is exact.
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu126     # match your CUDA
-CQSA_SKIP_EXT=1 pip install --no-build-isolation git+ssh://git@github.com/yiming-b/Stream-CQSA-v2.git   # no compilation
+CQSA_SKIP_EXT=1 pip install --no-build-isolation git+https://github.com/yiming-b/Stream-CQSA-v2.git   # no compilation
 python -m stream_cqsa.doctor                                            # what this machine can run, and how far
 ```
 
@@ -49,16 +49,15 @@ implemented in Triton, and the engine uses them whenever no extension is present
 (`pip install triton` if your torch did not bring it). `pip install flash-attn` is optional
 and gives the monolithic fast path its own kernel.
 
-While this repository is private the `git+ssh` line above (any account with access) is the
-install; once it is public, `git+https://...` works as well, and the release page carries
-wheels: the pure-Python wheel is built by `.github/workflows/wheels.yml` on every `v*` tag,
-and a CUDA-extension wheel for torch 2.10 / CUDA 13 / sm80+sm90 (with the native wave
-kernel) is built on della and attached by hand (the hosted runner of a private repository,
-2 cores and 7 GB, cannot compile the kernels):
-`pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.0/stream_cqsa-2.1.0-py3-none-any.whl`.
-Publishing to PyPI (`pip install stream-cqsa`) is a separate step: the `pypi` job in the
-workflow uploads the pure wheel and the sdist when the repository variable `PYPI_PUBLISH`
-is `true` and the project is registered on PyPI with trusted publishing for this workflow.
+Prebuilt wheels are on the release page: a pure-Python wheel (Triton kernels) built by
+`.github/workflows/wheels.yml` on every `v*` tag, CUDA-extension wheels per python / torch /
+CUDA / GPU architecture (sm80 = A100, sm90 = H100) from the same workflow, and a
+torch 2.10 / CUDA 13 / sm80+sm90 wheel with the native wave kernel built on della. Pick the
+one matching `python -c "import torch; print(torch.__version__)"` and your GPU, e.g.
+`pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.1/<wheel>.whl`;
+with no match, the pure wheel or the line above. Publishing to PyPI (`pip install stream-cqsa`)
+is the `pypi` job in the workflow, enabled by the repository variable `PYPI_PUBLISH=true` once
+the project is registered on PyPI with trusted publishing.
 
 With the CUDA extension, from a checkout: `pip install -e . --no-build-isolation`
 (40-75 min of nvcc; `CQSA_KERNEL_SET=common` covers fp16/bf16 and head dims 64/128).
