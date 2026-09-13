@@ -80,6 +80,8 @@ def cqsa_sources(root: str = "csrc") -> list[str]:
         f"{root}/flash_attn/flash_api.cpp",
         f"{root}/flash_attn/src/cqsa_kernel.cu",
     ]
+    if root.startswith("native"):
+        base.append(f"{root}/flash_attn/src/wave_kernels.cu")     # the wave merge / scatter-add kernels
 
     kernel_set = cqsa_kernel_set()
     if kernel_set == "full":
@@ -207,7 +209,12 @@ setup(
     #   cqsa_cuda_nc  csrc_nc/  v9 forward: serves NON-causal calls (v11's non-causal CQS-on
     #                           instantiation is mis-compiled by ptxas -- an open issue)
     # The interface picks per call (CQSA_CUDA_MODULE / CQSA_CUDA_MODULE_NONCAUSAL).
-    ext_modules=[] if SKIP_EXT else [build_extension("cqsa_cuda", "csrc"), build_extension("cqsa_cuda_nc", "csrc_nc")],
+    #   cqsa_native   native/   the multi-subproblem wave kernel (optional: CQSA_BUILD_NATIVE=1;
+    #                           hdim64 wave modes, hdim128 as v11); stream_cqsa.native_wave uses it
+    ext_modules=[] if SKIP_EXT else (
+        [build_extension("cqsa_cuda", "csrc"), build_extension("cqsa_cuda_nc", "csrc_nc")]
+        + ([build_extension("cqsa_native", "native/csrc")]
+           if os.getenv("CQSA_BUILD_NATIVE", "").strip().lower() in ("1", "true", "yes") else [])),
     cmdclass={} if SKIP_EXT else {"build_ext": BuildExtension.with_options(use_ninja=True)},
     python_requires=">=3.9",
     install_requires=["torch", "numpy"],
