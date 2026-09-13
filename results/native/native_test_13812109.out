@@ -1,0 +1,45 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+[ok] kernel W=1 packed == v11 kernel (causal=True) max|d|=0.00e+00
+[ok] kernel W=1 gather-free == packed (causal=True) 
+[ok] kernel W=1 packed ~= v9 kernel (causal=False) rel=0.0e+00 lse max|d|=0.0e+00
+[ok] kernel W=1 gather-free == packed (causal=False) 
+[ok] wave_forward N=4096 B=2 itr=1 c=7 causal=True rel err wave 1.57e-04 | FA-2 2.57e-04 | old engine 1.57e-04 | lse max|d| 1.3e-06 | waves [7]
+[ok]   wave cap=2 (4 waves) agrees rel 1.5e-08
+[ok]   deterministic (bit-identical rerun) 
+[ok] wave_forward N=4096 B=1 itr=1 c=7 causal=False rel err wave 1.85e-04 | FA-2 2.83e-04 | old engine 1.85e-04 | lse max|d| 1.3e-06 | waves [7]
+[ok]   wave cap=2 (4 waves) agrees rel 3.5e-08
+[ok]   deterministic (bit-identical rerun) 
+[ok] wave_forward N=8192 B=1 itr=2 c=7 causal=True rel err wave 1.56e-04 | FA-2 2.56e-04 | old engine 1.56e-04 | lse max|d| 1.2e-06 | waves [49]
+[ok]   wave cap=2 (25 waves) agrees rel 2.9e-08
+[ok]   deterministic (bit-identical rerun) 
+[ok] wave_forward N=8192 B=1 itr=1 c=13 causal=True rel err wave 1.60e-04 | FA-2 2.60e-04 | old engine 1.60e-04 | lse max|d| 1.3e-06 | waves [13]
+[ok]   wave cap=2 (7 waves) agrees rel 1.3e-08
+[ok]   deterministic (bit-identical rerun) 
+[ok] wave_forward N=6000 B=1 itr=1 c=7 causal=True rel err wave 1.62e-04 | FA-2 2.59e-04 | old engine 1.62e-04 | lse max|d| 1.5e-06 | waves [7]
+[ok]   wave cap=2 (4 waves) agrees rel 1.5e-08
+[ok]   deterministic (bit-identical rerun) 
+[ok] wave_forward N=16384 B=1 itr=1 c=31 causal=False rel err wave 1.93e-04 | FA-2 2.90e-04 | old engine 1.92e-04 | lse max|d| 1.5e-06 | waves [31]
+[ok]   wave cap=2 (16 waves) agrees rel 7.7e-08
+[ok]   deterministic (bit-identical rerun) 
+[ok] host-resident (pool slots 7, waves [7]) == device-resident rel 0.0e+00
+[ok] host-resident small pool (slots 4, waves [1, 1, 1, 1, 1, 1, 1]) rel 1.8e-08
+[ok] wave backward N=2048 itr=1 causal=True dq/dk/dv rel err wave 3.2e-04/3.6e-04/3.5e-04  FA-2 3.1e-04/3.0e-04/2.9e-04
+[ok]   backward wave cap=3 agrees rel 2.5e-06
+[ok] wave backward N=2048 itr=1 causal=False dq/dk/dv rel err wave 3.7e-04/3.6e-04/3.6e-04  FA-2 3.0e-04/2.9e-04/2.9e-04
+[ok]   backward wave cap=3 agrees rel 5.6e-06
+[ok] wave backward N=4096 itr=2 causal=True dq/dk/dv rel err wave 3.3e-04/3.6e-04/3.5e-04  FA-2 3.1e-04/3.0e-04/2.9e-04
+[ok]   backward wave cap=3 agrees rel 2.6e-06
+
+0 failures
+=== bench ===
+NVIDIA A100-SXM4-80GB
+kernel alone (L=56064 causal): {'v11': 17.68, 'native_single': 17.97, 'native_wave_W1_packed': 17.91, 'native_wave_W1_inplace': 18.42, 'fa2': 18.09}
+monolithic FA-2: 87.5 ms
+{'c': 7, 'L': 56173, 'old_npar1_ms': 184.54455595929176, 'old_npar1_gib': 1.1890044212341309, 'old_npar2_ms': 147.6480020210147, 'old_npar2_gib': 1.1890044212341309, 'wave_cap1_ms': 141.33688190486282, 'wave_cap1_gib': 1.1433706283569336, 'wave_cap2_ms': 138.35481309797615, 'wave_cap2_gib': 1.1433706283569336, 'wave_cap4_ms': 135.9038919908926, 'wave_cap4_gib': 1.3331241607666016, 'wave_capNone_ms': 133.33182292990386, 'wave_capNone_gib': 1.6655030250549316, 'rel_diff_wave_vs_old': 2.0766821762663312e-05}
+{'c': 31, 'L': 25368, 'old_npar1_ms': 225.86084704380482, 'old_npar1_gib': 0.9021596908569336, 'old_npar2_ms': 180.02337706275284, 'old_npar2_gib': 0.9021596908569336, 'wave_cap1_ms': 173.21517399977893, 'wave_cap1_gib': 1.1472768783569336, 'wave_cap2_ms': 160.5577199952677, 'wave_cap2_gib': 1.1472768783569336, 'wave_cap4_ms': 153.14433095045388, 'wave_cap4_gib': 1.1472768783569336, 'wave_capNone_ms': 142.56366505287588, 'wave_capNone_gib': 2.447213649749756, 'rel_diff_wave_vs_old': 4.505101969698444e-05}
+{'c': 73, 'L': 16159, 'old_npar1_ms': 280.89532593730837, 'old_npar1_gib': 0.9021596908569336, 'old_npar2_ms': 219.42731796298176, 'old_npar2_gib': 0.9021596908569336, 'wave_cap1_ms': 214.78121494874358, 'wave_cap1_gib': 1.1472768783569336, 'wave_cap2_ms': 186.95002095773816, 'wave_cap2_gib': 1.1472768783569336, 'wave_cap4_ms': 174.44508301559836, 'wave_cap4_gib': 1.1472768783569336, 'wave_capNone_ms': 153.82872603368014, 'wave_capNone_gib': 3.246591091156006, 'rel_diff_wave_vs_old': 8.687694935360923e-05}
+backward 131k c=7: {'wave_ms': 619.4402789697051, 'wave_gib': 4.930111885070801, 'old_ms': 639.6729670232162, 'old_gib': 2.264193058013916, 'fa2_fwd_bwd_ms': 327.23287597764283}
+N=1M c=7: {'wave_c7_ms': 7936.698468052782, 'wave_c7_gib': 11.021651268005371, 'wave_c7_waves': [4, 3], 'old_c7_ms': 7762.751116999425, 'old_c7_gib': 11.895429134368896}
+N=1M c=31: {'wave_c31_ms': 7869.587978930213, 'wave_c31_gib': 13.509138584136963, 'wave_c31_waves': [10, 10, 10, 1], 'old_c31_ms': 7857.7908399747685, 'old_c31_gib': 9.576964378356934}
+N=1M host-resident: {'host_wave_c7_ms': 8299.320267047733, 'host_wave_c7_gib': 13.050826072692871, 'host_wave_c7_plan': {'slots': 7, 'waves': [4, 3]}, 'host_old_c7_ms': 8527.469141990878, 'host_old_c7_gib': 8.895429134368896}
+done

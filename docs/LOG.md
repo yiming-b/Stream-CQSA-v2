@@ -929,3 +929,168 @@ therefore right for this regime as well. The remaining 2.5x over the monolithic
 call is the decomposition itself at this small N: (l²/c) = 81/73 pair work,
 short K/V loops per 16K subproblem, and the CQS tile-verdict overhead; the
 73-way split only pays when the monolithic call does not fit.
+
+## Phase 6: a native multi-subproblem kernel ("wave" kernel), next/native/
+
+Motivation (Phase 5 addendum): one kernel per subproblem never overlaps on the
+device, so `max_parallel` only ever hid the gaps between kernels. The user asked
+for a kernel that executes several subproblems natively. Everything lives in
+`next/native/` (a copy of the v11 tree plus the changes below; `next/kernel/v*`
+is untouched) and builds as the extension `cqsa_native`.
+
+### Design
+
+A **wave** is a set of subproblems that fits the memory budget. One launch runs
+all of them:
+
+* **Layout.** FlashAttention-2's varlen batch: subproblem *w* is "sequence" *w*,
+  owning packed rows `[cu[w], cu[w+1])` of every per-token array (group bits,
+  fp32 output, lse, gradients). The grid is `(ceil(max_L/128), W, H)`, so the
+  hardware fills the device with row blocks of all subproblems at once; the
+  tail of one subproblem is covered by the others, and there is no
+  inter-kernel gap at all.
+* **Per-subproblem CQS tables** (`Flash_fwd_params::cqs_wave`, `cqs_blk_cu`,
+  `cqs_bb_cu`): the group bits are packed with the tokens, the 64-token block
+  summaries and the block maps with their own prefix arrays. A CTA offsets
+  its pointers once (`cqs_bits_p`, `cqs_or_p`, `cqs_and_p`, `cqs_bb_p`) and
+  the v11 live-tile loop runs unchanged on them. New `Cqs_mode` values 3
+  (causal, compile-time CQS) and 4 (non-causal, runtime flag) select the wave
+  instantiation; modes 0/1/2 and the old entry points are unchanged.
+* **Gather-free reads.** With device-resident inputs the kernel reads the
+  ORIGINAL token-major `[N, H, D]` view of Q/K/V in place: per subproblem a
+  block map gives the global row of every 128-row block (chunk boundaries are
+  128-aligned, so a tile never straddles a chunk), stored RELATIVE to the
+  subproblem's packed offset so the varlen base pointer arithmetic lands on
+  the global row. No per-subproblem copy of Q/K/V exists on the device.
+* **fp32-only epilogue.** The wave forward hands over only the fp32 output and
+  the lse (`o_ptr == nullptr` skips the fp16 store), which is what the
+  recomposition consumes.
+* **Deterministic batched merge** (`wave_merge`, `src/wave_kernels.cu`): the
+  packed rows are sorted by global token once (stable, so rows of one token
+  stay in subproblem order), and one kernel folds every row of the wave into
+  the max-shifted accumulator `(acc, l, m)` in that fixed order -- the same
+  arithmetic as `StableAccumulator.merge_lse`, no atomics, bit-reproducible.
+  The same structure adds the packed `dq/dk/dv` of a backward wave into the
+  fp32 gradient buffers (`wave_scatter_add`).
+* **Backward** (`bwd_wave`): the varlen FA-2 backward with the same
+  per-subproblem tables, on the GLOBAL log-sum-exp gathered per packed token
+  and the global `rowsum(dO*O)` supplied in the kernel's padded varlen layout
+  (`cu[w] + 128 w`); `dq` accumulates in fp32 per packed row (128 rows of slack
+  per subproblem, as upstream), and the wave's packed gradients are reduced
+  deterministically. Inputs for the backward wave are gathered (packed) on the
+  device; the in-place block map is forward-only for now (the backward's hot
+  loop advances Q/dO by pointer decrement, which the map would have to
+  replace).
+* **Engine** (`next/pkg/stream_cqsa/native_wave.py`): `wave_forward`,
+  `wave_backward`, `wave_attention` (autograd). Waves are planned greedily
+  under a token budget derived from the free device memory (per packed token:
+  `H*D*4` for the fp32 partial output plus lse and index scratch in the
+  forward; `7*H*D*itemsize + H*D_r*4` in the backward) -- memory stays linear
+  and the wave size, not a stream count, is the concurrency knob. Host-resident
+  Q/K/V go through a `ChunkPool`: the level-1 chunks a wave needs are streamed
+  into device slots (pinned double-buffered staging), resident chunks are kept
+  across waves, and the block map then points at pool rows; the accumulator
+  stays on the device.
+
+### Build notes
+
+* `CQSA_KERNEL_SET=native_dev` (hdim64 fp16, fwd causal + non-causal, bwd) builds in
+  35-45 min on della-vis1 (MAX_JOBS=4). The first attempt instantiated a
+  compile-time non-causal wave mode (mode 4) and ptxas did not finish it in 60
+  min -- the same pathology as v10's non-causal mode 1 -- so the non-causal wave
+  runs through the existing runtime mode 2 with a `cqs_wave` flag instead.
+* First measurement (varlen layout for every wave): the wave instantiation was
+  12% slower than the single-subproblem kernel at W=1 (19.9 vs 17.7 ms, L=56K,
+  SXM4). SASS: same 74.8K instructions, a few more spills (STL 236 vs 226, LDL
+  319 vs 307) -- the per-subproblem table pointers loaded from `cu_seqlens` /
+  `blk_cu` live in registers in a kernel that is already at 255. Fix: the
+  **uniform layout** for the causal wave (every subproblem padded to
+  S = ceil(max_L/128)*128 rows; plain batch launch; table offsets are
+  `blockIdx.y * stride`, which the compiler rematerialises; padding keys are
+  after every real key and hidden by the causal mask, padding queries are
+  discarded, padding block-map entries alias the last real block). W=1 is then
+  17.8 ms vs 17.7 (packed) and the "even" instantiation applies. Non-causal
+  waves keep the varlen layout (mode 2).
+* Uniform layout + in-place reads need finite padding rows: with N not a
+  multiple of 128 the ragged last block would read past the tensor (NaN * 0 in
+  the PV GEMM). The engine reads in place only when N % 128 == 0 and gathers
+  the wave with zero padding otherwise; the chunk pool is zero-initialised.
+* Host-side: `torch.cat` / `index_select` / `copy_` on CPU tensors fork 80
+  OpenMP threads on this node (19 MB copy: 96 ms at 80 threads, 0.2 ms at 8).
+  Table packing uses numpy; host copies run under `_cpu_threads(8)`.
+
+### Results (job 13810418, A100-SXM4-80GB, fp16, B=1 H=8 D=64, causal; uniform layout, before the block-map prefetch)
+
+Exactness (`test_wave.py`, 30 checks): a single subproblem through `fwd_wave`
+is **bit-identical** to the v11 kernel (causal) / the v9 kernel (non-causal);
+the in-place block-map path is bit-identical to the packed path; `wave_forward`
+agrees with the previous engine to 1e-8 relative and is closer to float64 than
+FA-2 (1.6e-4 vs 2.6e-4) at N=4K-16K, itr 1-2, c=7/13/31, B=2, N=6000; waves of
+2 give the same result to 1e-8; reruns are bit-identical; host-resident
+(chunk pool, 7 and 4 slots) equals device-resident; `wave_backward` gradient
+error equals FA-2's against float64 (3.2-3.7e-4 vs 2.9-3.1e-4).
+
+Kernel alone, the c=7 subproblem of N=131072 (L=56K):
+
+| kernel | ms |
+|---|---|
+| FlashAttention-2 (no CQS) | 16.5 |
+| v11 single launch | 17.7 |
+| native, single-launch entry (refactor check) | 17.7 |
+| native wave W=1, packed | 17.8 |
+| native wave W=1, in place (block map) | 18.7 |
+
+Engine forward, N=131072, device-resident inputs, itr=1 (monolithic FA-2: 87.6 ms):
+
+| c (subproblems × L) | previous n_par=1 | previous n_par=2 | wave cap 1 | cap 2 | cap 4 | one wave | peak (one wave) |
+|---|---|---|---|---|---|---|---|
+| 7 (7 × 56K) | 185.0 | 147.8 | 143.4 | 140.4 | 137.3 | **134.6** | 1.67 GiB |
+| 31 (31 × 25K) | 226.2 | 180.3 | 174.9 | 161.6 | 154.1 | **142.7** | 2.45 GiB |
+| 73 (73 × 16K) | 280.8 | 219.7 | 216.4 | 188.1 | 174.9 | **154.6** | 3.25 GiB |
+
+One wave is 9% / 21% / 30% faster than the previous engine at its best
+setting, and the gain grows with the number of subproblems, as it should: what
+the wave removes is the per-launch gap and the per-launch tail, both per
+subproblem. Timeline (`wave_timeline.png`, c=73): one 152 ms kernel and one
+9 ms merge instead of 73 kernels over two streams (227 ms span).
+
+Backward, N=131072, c=7: wave 620 ms vs previous engine 640 ms (FA-2 fwd+bwd
+326 ms). N=1M, itr=1, one wave of 7 (c=7) / 31 (c=31): 8.01 s / 7.95 s vs
+previous 7.77 s / 7.86 s -- at L=450K the per-launch costs are negligible and
+the in-place block-map lookup (5%) shows; the prefetch below targets it.
+Host-resident 1M, c=7: wave 8.29 s (chunk pool, 7 slots) vs previous 8.49 s.
+
+### Final results (job 13812109, with the block-map prefetch; same setup)
+
+Kernel alone (c=7 subproblem, L=56K causal): v11 17.7 ms, native single-launch
+entry 18.0, wave W=1 packed 17.9, wave W=1 in place 18.4 (was 18.7), FA-2 18.1
+-- all within the run-to-run noise of ~0.4 ms except the in-place map, now ~2%.
+
+| N=131072, itr=1 | previous engine (best, n_par=2) | native wave (one wave) | gain | mono FA-2 |
+|---|---|---|---|---|
+| c=7 (7 × 56K) | 147.6 ms | **133.3 ms** | 10% | 87.5 ms |
+| c=31 (31 × 25K) | 180.0 | **142.6** | 21% | |
+| c=73 (73 × 16K) | 219.4 | **153.8** | 30% | |
+| backward c=7 | 639.7 | **619.4** | 3% | 327 (fwd+bwd) |
+
+N=1M, itr=1, device-resident (wave cap 2M packed tokens -> waves of [4, 3] for
+c=7, [10, 10, 10, 1] for c=31): c=7 7.94 s vs previous 7.76 s (peak 11.0 vs
+11.9 GiB); c=31 7.87 s vs 7.86 s. Host-resident c=7: 8.30 s vs 8.53 s. At
+L=450K one subproblem is ~1.1 s of kernel, so the per-launch costs the wave
+removes are below 1% and the two engines coincide; the wave's advantage is the
+regime with many short subproblems (large c, deeper itr, small N), which is
+exactly the quorum-axis regime the Phase 3 planner prefers (large c, itr=1).
+
+Where the remaining time goes (c=73 timeline): the wave kernel is 152 ms for
+73 × 16K tokens of 81/73 pair work -- 1.55x the monolithic 87.5 ms, i.e. the
+1.11x pair-work overhead plus the short-K/V-loop inefficiency of 16K-token
+subproblems; the merge is 9 ms (5%) and could be halved with a coalesced lse
+read. Not done: an in-place backward (the bwd kernel advances Q/dO by pointer
+decrement; the map would replace that), bf16/hdim128 builds of `cqsa_native`
+(`CQSA_KERNEL_SET=common` in `next/native/setup.py`, untested), a distributed
+wave (shard waves over ranks as `distributed.py` shards tasks).
+
+Files: `next/native/` (sources, build, tests, bench, README), engine
+`next/pkg/stream_cqsa/native_wave.py`, results `next/logs/native_test_13812109.out`,
+`next/logs/wave_bench.{json,png}`, `next/logs/wave_timeline.png`; repo copies
+under `native/`, `stream_cqsa/native_wave.py`, `results/native/`.

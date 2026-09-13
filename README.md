@@ -33,6 +33,7 @@ kept query–key pair is counted exactly once, so the result is exact.
 | **independent fwd/bwd** | the backward plans its own decomposition depth (`bwd_itr="auto"`) |
 | **developer kit** | `stream_cqsa.devkit`: plug any inner kernel into the framework and get exactness (bit-identical / within rounding / not) and performance against its monolithic call; `quick_bench` sweeps |
 | **Triton kernels (no build)** | `stream_cqsa.triton_kernel`: forward AND backward CQS kernels in Triton with the CUDA kernels' contract, selected automatically when no extension is compiled (`CQSA_BACKWARD=triton` forces the backward). Forward: 0.75–0.91x the CUDA kernel at L=56K (faster), within 13% at 899K; non-causal it beats FlashAttention-2 itself on the same L. Backward: 0.77x the CUDA CQS backward at L=56K, engine backward at 1M 29 s vs 39 s. Engine forward at 1M: 1.15x the CUDA path (`docs/LOG.md`, Phase 4) |
+| **native wave kernel** (`native/`, `stream_cqsa.native_wave`) | a CQS kernel that runs *several subproblems per launch*: the wave is one batched launch with per-subproblem group bits, tile summaries and a block map that reads the original Q/K/V in place (no gather); one deterministic merge kernel recomposes the wave. 9-30% faster than the stream-based engine at N=131K (more subproblems, more gain), bit-identical to the v11 kernel per subproblem; forward + backward (`docs/LOG.md`, Phase 6) |
 | **adapters** | `stream_cqsa.adapters`: automatic conversion of FlexAttention-expressible kernels (ALiBi, windows, soft-cap, document masks) into inner kernels, with global-position remapping |
 
 ## Install
@@ -61,6 +62,11 @@ Triton compiles each kernel configuration on first use (a few seconds, cached).
 pip install ninja
 CQSA_KERNEL_SET=common pip install -e . --no-build-isolation             # fp16+bf16, head dims 64/128, sm80
 ```
+
+**Native wave kernel** (optional, `native/`): `bash native/build.sh` builds `cqsa_native`
+(hdim64 fp16 by default, ~40 min); then `stream_cqsa.native_wave.wave_forward /
+wave_backward / wave_attention` run every subproblem of a wave in one launch. Tests and
+the benchmark: `sbatch native/run_test.slurm`.
 
 `setup.py` builds two extensions, `cqsa_cuda` (from `csrc/`, the v11 forward,
 causal calls) and `cqsa_cuda_nc` (from `csrc_nc/`, the v9 forward, non-causal
@@ -100,6 +106,7 @@ Stream-CQSA continues, exact.
 
     stream_cqsa/      the package (engine, planner, devkit, adapters, distributed, autograd)
     csrc/, csrc_nc/   the two kernel source trees (FlashAttention-2 + CQS; v11 and v9)
+    native/           the multi-subproblem "wave" kernel (cqsa_native): sources, build, tests, benchmark
     tests/            pytest suite (engine, planner, devkit, adapters)
     benchmarks/       kernel A/B, pipeline A/B, end-to-end, quick bench, ncu driver, quorum axis
     distributed/      multi-device tests (2/4/8 GPUs)
