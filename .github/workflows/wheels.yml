@@ -40,14 +40,15 @@ jobs:
         with: { python-version: "${{ matrix.python }}" }
       - name: free disk space
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+      # full toolkit from the runfile: the network install with a sub-package list either
+      # misses headers torch includes (cusparse.h) or trips apt on a package name
       - uses: Jimver/cuda-toolkit@v0.2.19
         id: cuda
         with:
           cuda: "${{ matrix.cuda }}"
-          method: network
-          # exactly what flash-attn's release workflow requests: nvcc pulls the runtime headers it needs
-          sub-packages: '["nvcc"]'
+          method: local
           linux-local-args: '["--toolkit"]'
+          use-github-cache: false
       - name: install torch
         run: |
           CU=$(echo ${{ matrix.cuda }} | cut -d. -f1,2 | tr -d .)
