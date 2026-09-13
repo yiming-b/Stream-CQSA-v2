@@ -103,7 +103,10 @@ class _StreamCQSANative(torch.autograd.Function):
         def place(t):
             if t is None:
                 return None
-            return t.cpu() if host else t
+            # streaming: every operand on the host; otherwise every operand on the inputs'
+            # device -- the forward's out/lse live wherever its accumulator lived, which
+            # with a host accumulator (low_memory=True) is the CPU even for device inputs.
+            return t.cpu() if host else t.to(q.device)
 
         dout_c = place(dout.contiguous())
         q_c, k_c, v_c = place(q), place(k), place(v)
@@ -126,7 +129,9 @@ class _StreamCQSANative(torch.autograd.Function):
         )
 
         dt = cfg["out_dtype"]
-        to = lambda g, ref: g.to(device=ref.device, dtype=dt)
+        # cast where the gradient sits (fp32 on the host with a host accumulator), then move
+        # the half-size result: the fp32 copy never has to fit on the device
+        to = lambda g, ref: g.to(dtype=dt).to(device=ref.device)
         return (to(dq, q), to(dk, k), to(dv, v),
                 None, None, None, None, None, None, None, None, None, None, None)
 

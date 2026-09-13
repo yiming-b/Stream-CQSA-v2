@@ -1148,3 +1148,41 @@ vis1 through every entry point, including the fallback under a 3 GiB cap.
   decomposition exact for causal/non-causal, the three kernels agree,
   host inputs under a memory cap, autograd, patch round trip incl. pass-through
   of masked calls, rejections, estimate/doctor, cache round trip).
+
+### v2.1.0 released; quick-start job
+
+Tag `v2.1.0` pushed (commit a899849); `.github/workflows/wheels.yml` runs on it.
+`slurm/quickstart.slurm` + `benchmarks/quickstart.py` exercise the one-call API
+on one A100-80GB (doctor, estimates at 131K/1M/4M/16M, monolithic path identical
+to SDPA, decomposed path under a 6 GiB cap, 4.2M tokens host-resident under a
+16 GiB cap -- 961 subproblems, 0.9 GiB device peak, 182 s -- autograd under a
+cap, `patched_sdpa` inside a module); output in `results/quickstart/`.
+
+Two API fixes it flushed out: (1) with device-resident inputs under a tight
+budget the planner may choose host streaming, which the engine rejects for
+device tensors -- `attention` now prefers the fastest device-resident feasible
+candidate and only copies Q/K/V to pinned host memory when nothing device-
+resident fits; (2) the engine moved its fp32 result to the device at the end of
+a host-accumulated run, an allocation the capped device could not take --
+`stream_cqsa_forward(out_device="acc")` leaves it where the accumulator is and
+`attention` casts and moves it in a delivery step that falls back to host
+memory (with a warning) if even the fp16 result does not fit next to the
+caller's tensors.
+
+### Quick-start job (v2.1.0, `slurm/quickstart.slurm`, A100-SXM4-80GB, job 13826664)
+
+`benchmarks/quickstart.py` through `stream_cqsa.attention`: dry runs at 131K-16M;
+131K monolithic (108 ms, bit-identical to SDPA); 1M under a 6 GiB cap ->
+c=13 itr=1 host-resident, 13 subproblems, 13.4 s, 5.25 GiB peak, 2.9e-4 vs the
+fp16 kernel; 4M host-resident under a 16 GiB cap -> c=31 itr=2, 961 subproblems,
+203 s, 0.91 GiB device peak; 262K autograd under a 6 GiB cap -> forward 7
+subproblems, backward 49, gradients 1.9-4.0e-4 vs SDPA; a module calling
+`F.scaled_dot_product_attention` under `patched_sdpa()` at 1M, 39 s.
+Three fixes came out of it: the API keeps device inputs on the device when
+gradients are needed (copying them to the host severed the graph) and uses a
+host accumulator instead; the autograd wrapper moves the forward's out/lse to
+the inputs' device before a device-side backward (a host accumulator leaves
+them on the CPU); gradients and results are cast to the output dtype where
+they sit and moved afterwards, so the fp32 copy never has to fit on the
+device. `stream_cqsa_forward(..., out_device="acc")` leaves the result where
+the accumulator is.

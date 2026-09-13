@@ -1,89 +1,0 @@
-<frozen runpy>:128: RuntimeWarning: 'stream_cqsa.doctor' found in sys.modules after import of package 'stream_cqsa', but prior to execution of 'stream_cqsa.doctor'; this may result in unpredictable behaviour
-stream_cqsa 2.1.0 doctor
-  python 3.11.14  torch 2.10.0+cu130  CUDA 13.0  (x86_64)
-  triton 3.6.0  flash-attn 2.8.3
-  kernels:
-    CUDA extension (causal / non-causal): yes cqsa_cuda_next_v11.cpython-311-x86_64-linux-gnu.so / yes cqsa_cuda_next_v9.cpython-311-x86_64-linux-gnu.so
-    native wave kernel (cqsa_native):     yes
-    Triton kernels (no build):            yes
-  devices:
-    cuda:0: NVIDIA A100-SXM4-80GB, 78.9 GiB free of 79.3 GiB (budget 71.0 GiB)
-  host: 763.0 GiB budget, 8 cpus
-  cost model: defaults (run stream_cqsa.calibrate(save=True) to fit this machine, ~1 min)
-  largest N (B=1 H=8 D=64 float16, causal) by the planner's memory model:
-    forward            monolithic up to N=8,388,608   Stream-CQSA up to N=16,777,216
-    forward+backward   monolithic up to N=4,194,304   Stream-CQSA up to N=67,108,864
-  check (N=4096, decomposed vs float64): Stream-CQSA 2.6e-04, SDPA 2.6e-04 -> ok
-
-NVIDIA A100-SXM4-80GB, 79 GiB
-
-Stream-CQSA estimate for N=131,072 B=1 H=8 D=64 float16 causal
-  hardware: devices[cuda:0=NVIDIA A100-SXM4-80GB 71.0/79.3 GiB] host 763 GiB, 8 cpus, link 25 GB/s
-  forward:
-    monolithic FlashAttention: fits (0.6 GiB), ~0.09 s
-    -> monolithic call
-  backward (fwd+bwd step):
-    monolithic FlashAttention: fits (1.3 GiB), ~0.28 s
-    -> monolithic call
-
-Stream-CQSA estimate for N=1,048,576 B=1 H=8 D=64 float16 causal
-  hardware: devices[cuda:0=NVIDIA A100-SXM4-80GB 71.0/79.3 GiB] host 763 GiB, 8 cpus, link 25 GB/s
-  forward:
-    monolithic FlashAttention: fits (4.6 GiB), ~5.94 s
-    -> monolithic call
-  backward (fwd+bwd step):
-    monolithic FlashAttention: fits (10.2 GiB), ~17.83 s
-    -> monolithic call
-
-Stream-CQSA estimate for N=4,194,304 B=1 H=8 D=64 float16 causal
-  hardware: devices[cuda:0=NVIDIA A100-SXM4-80GB 71.0/79.3 GiB] host 763 GiB, 8 cpus, link 25 GB/s
-  forward:
-    monolithic FlashAttention: fits (18.5 GiB), ~95.09 s
-    -> monolithic call
-  backward (fwd+bwd step):
-    monolithic FlashAttention: fits (40.8 GiB), ~285.28 s
-    -> monolithic call
-
-Stream-CQSA estimate for N=16,777,216 B=1 H=8 D=64 float16 causal
-  hardware: devices[cuda:0=NVIDIA A100-SXM4-80GB 71.0/79.3 GiB] host 763 GiB, 8 cpus, link 25 GB/s
-  forward:
-    monolithic FlashAttention: does NOT fit (74.2 GiB), ~1521.49 s
-    -> Stream-CQSA cqsa c=73 itr=1 acc=cpu n_par=1 host-resident Q/K/V: ~2152.2 s, 41.9 GiB on the device, 81 GiB host
-       also: c57/itr1/cpu/host/np2 ~2140.6 s, 54.5 GiB
-       also: c73/itr1/cpu/host/np2 ~2142.0 s, 51.7 GiB
-  backward (fwd+bwd step):
-    monolithic FlashAttention: does NOT fit (163.2 GiB), ~4564.46 s
-    -> Stream-CQSA cqsa c=73 itr=1 acc=cpu n_par=1 host-resident Q/K/V: ~6412.8 s, 26.3 GiB on the device, 162 GiB host
-       also: c73/itr1/cpu/host/np2 ~6402.6 s, 52.0 GiB
-       also: c21/itr1/cpu/host/np1 ~6402.6 s, 50.3 GiB
-
-Stream-CQSA: N=131072 fits (0.6 GiB) -- monolithic call, no decomposition
-N=131072: attention 100.7 ms, SDPA 95.1 ms, identical=True
-
-Stream-CQSA: no device-resident configuration fits; copying Q/K/V to pinned host memory and streaming
-Stream-CQSA: monolithic needs 4.6 GiB > 4.1 GiB budget; fastest feasible on the (time, memory) frontier: cqsa c=13 itr=1 acc=cpu n_par=1 host-resident Q/K/V ~9.0 s at 3.5 GiB/device, host 5 GiB; frontier: c31/itr1/cpu/host/np2 8.9s/3.9GiB; c13/itr1/cpu/host/np1 9.0s/3.5GiB; c57/itr1/cpu/host/np2 9.1s/3.4GiB
-Stream-CQSA: forward of N=1.0M tokens (B=1, H=8, D=64, causal) decomposed over c=13 at depth itr=1: 13 subproblems on cuda | 1 in flight, accumulator on cpu, Q/K/V streamed from host memory | expected ~9.0s (cost model)
-Stream-CQSA:   0%|          | 0/13 [00:00<?, ?subproblem/s]/scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2/stream_cqsa/api.py:196: RuntimeWarning: Stream-CQSA: host-resident Q/K/V are stored head-major ([B,H,N,D] contiguous); streaming needs them token-major, so a 3.0 GiB copy is made per call. Keep host tensors token-major (x.transpose(1,2).contiguous().transpose(1,2)) to avoid it.
-  out, _ = stream_cqsa_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, **kw)
-Stream-CQSA:   8%|▊         | 1/13 [00:02<00:26,  2.20s/subproblem]Stream-CQSA:  15%|█▌        | 2/13 [00:02<00:12,  1.10s/subproblem]Stream-CQSA:  23%|██▎       | 3/13 [00:03<00:09,  1.08subproblem/s]Stream-CQSA:  31%|███       | 4/13 [00:04<00:07,  1.16subproblem/s]Stream-CQSA:  38%|███▊      | 5/13 [00:04<00:06,  1.24subproblem/s]Stream-CQSA:  46%|████▌     | 6/13 [00:05<00:05,  1.26subproblem/s]Stream-CQSA:  54%|█████▍    | 7/13 [00:06<00:04,  1.30subproblem/s]Stream-CQSA:  62%|██████▏   | 8/13 [00:06<00:03,  1.32subproblem/s]Stream-CQSA:  69%|██████▉   | 9/13 [00:07<00:03,  1.32subproblem/s]Stream-CQSA:  77%|███████▋  | 10/13 [00:08<00:02,  1.33subproblem/s]Stream-CQSA:  85%|████████▍ | 11/13 [00:09<00:01,  1.34subproblem/s]Stream-CQSA:  92%|█████████▏| 12/13 [00:09<00:00,  1.35subproblem/s]Stream-CQSA: 100%|██████████| 13/13 [00:10<00:00,  1.35subproblem/s]Stream-CQSA: 100%|██████████| 13/13 [00:11<00:00,  1.13subproblem/s]
-Stream-CQSA: done in 11.5s (13 subproblems)
-Traceback (most recent call last):
-  File "/scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2/benchmarks/quickstart.py", line 47, in <module>
-    out, t = timed(lambda: attention(q, k, v, is_causal=True, verbose=True, hardware=hw))
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2/benchmarks/quickstart.py", line 21, in timed
-    torch.cuda.synchronize(); t0 = time.perf_counter(); out = fn(); torch.cuda.synchronize()
-                                                              ^^^^
-  File "/scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2/benchmarks/quickstart.py", line 47, in <lambda>
-    out, t = timed(lambda: attention(q, k, v, is_causal=True, verbose=True, hardware=hw))
-                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2/stream_cqsa/api.py", line 99, in attention
-    return _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, verbose=verbose, hardware=hardware,
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2/stream_cqsa/api.py", line 196, in _attention
-    out, _ = stream_cqsa_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, **kw)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2/stream_cqsa/stable_stream.py", line 1790, in stream_cqsa_forward
-    return out.to(device), info
-           ^^^^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB. GPU 0 has a total capacity of 79.27 GiB of which 74.58 GiB is free. Including non-PyTorch memory, this process has 4.68 GiB memory in use. 6.00 GiB allowed; Of the allocated memory 4.18 GiB is allocated by PyTorch, and 0 bytes is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)

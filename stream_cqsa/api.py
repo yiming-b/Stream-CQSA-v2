@@ -152,10 +152,21 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
             kw = dict(itr=int(c0["itr"]), c=int(c0["c"]), interest_set=tuple(c0["interest_set"]),
                       low_memory=(c0["acc"] == "cpu"), accumulate_on_gpu=(c0["acc"] == "gpu"),
                       stream_from_host=False, max_parallel=int(c0["n_par"]), shared_chunks=False)
+        elif direction == "bwd":
+            # Copying the inputs to the host would sever the autograd graph. Keep them on the
+            # device, park the accumulator in host memory, and let the engine escalate the
+            # depth on its own if the device is still short.
+            if vb:
+                print("Stream-CQSA: no device-resident configuration fits the estimate; keeping Q/K/V on the device with a "
+                      "host accumulator and escalating on demand", flush=True)
+            kw.update(stream_from_host=False, low_memory=True, accumulate_on_gpu=False, shared_chunks=False)
         else:
             if vb:
                 print("Stream-CQSA: no device-resident configuration fits; copying Q/K/V to pinned host memory and streaming", flush=True)
-            q, k, v = (t.detach().to("cpu").pin_memory() for t in (q, k, v))
+            if direction == "bwd":
+                q, k, v = (t.to("cpu") for t in (q, k, v))                 # differentiable copies: the graph stays intact
+            else:
+                q, k, v = (t.detach().to("cpu").pin_memory() for t in (q, k, v))
             on_cuda = False
     kw.update(overrides)
     if not kw.get("stream_from_host"):

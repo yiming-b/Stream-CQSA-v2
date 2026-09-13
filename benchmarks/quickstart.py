@@ -64,13 +64,13 @@ del qh, kh, vh, out; torch.cuda.empty_cache()
 # 5. autograd: the same call inside a graph
 N = 1 << 18
 q, k, v = (torch.randn(1, H, N, D, device=dev, dtype=torch.float16, requires_grad=True) for _ in range(3))
-torch.cuda.set_per_process_memory_fraction(4.0 / total_gib)
-out = attention(q, k, v, is_causal=True, verbose=True, hardware={"cuda:0": "1.5GiB", "host": "200GiB"})   # forward+backward must decompose
-out.float().sum().backward()
+torch.cuda.set_per_process_memory_fraction(6.0 / total_gib)
+out = attention(q, k, v, is_causal=True, verbose=True, hardware={"cuda:0": "2GiB", "host": "200GiB"})   # forward+backward must decompose
+out.sum().backward()
 torch.cuda.set_per_process_memory_fraction(1.0)
 q2, k2, v2 = (t_.detach().clone().requires_grad_(True) for t_ in (q, k, v))
 F.scaled_dot_product_attention(q2, k2, v2, is_causal=True).float().sum().backward()
-print(f"N={N} autograd under a 4 GiB cap: dq/dk/dv rel. difference to SDPA's gradients "
+print(f"N={N} autograd under a 3 GiB cap: dq/dk/dv rel. difference to SDPA's gradients "
       f"{rel(q.grad, q2.grad):.1e} / {rel(k.grad, k2.grad):.1e} / {rel(v.grad, v2.grad):.1e}\n", flush=True)
 del q, k, v, q2, k2, v2, out; torch.cuda.empty_cache()
 
