@@ -10,18 +10,15 @@ on:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
-      build_cuda:
-        description: "also build the CUDA-extension wheels (public repo runners: 4 cores / 16 GB, one arch per job)"
-        type: boolean
-        default: false
+      cuda:
+        description: "CUDA-extension wheels: none (pure wheel only) | single (one job: py3.11, torch 2.6, sm80, to test the runner) | all (full matrix)"
+        type: choice
+        options: ["none", "single", "all"]
+        default: "single"
       runner:
-        description: "runner label for the CUDA jobs (e.g. a larger runner)"
+        description: "runner label for the CUDA jobs (a larger runner if you have one)"
         type: string
         default: "ubuntu-22.04"
-      single:
-        description: "build only one CUDA wheel (python 3.11, torch 2.6.0) to diagnose"
-        type: boolean
-        default: false
 
 jobs:
   pure:
@@ -44,18 +41,18 @@ jobs:
   # for our torch/CUDA pair is built on della (CQSA_BUILD_NATIVE=1 python setup.py
   # bdist_wheel) and attached to the release by hand.
   cuda:
-    if: ${{ inputs.build_cuda }}
+    if: ${{ inputs.cuda == 'single' || inputs.cuda == 'all' }}
     runs-on: ${{ inputs.runner || 'ubuntu-22.04' }}
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        python: ${{ fromJSON(inputs.single && '["3.11"]' || '["3.10", "3.11", "3.12"]') }}
-        torch: ${{ fromJSON(inputs.single && '["2.6.0"]' || '["2.5.1", "2.6.0"]') }}
+        python: ${{ fromJSON(inputs.cuda == 'single' && '["3.11"]' || '["3.10", "3.11", "3.12"]') }}
+        torch: ${{ fromJSON(inputs.cuda == 'single' && '["2.6.0"]' || '["2.5.1", "2.6.0"]') }}
         cuda: ["12.4.1"]
         # one GPU architecture per job (A100 = sm80, H100 = sm90): keeps each job inside the
         # 6 h limit on a 4-core runner; the wheel name carries the arch
-        arch: ${{ fromJSON(inputs.single && '["80"]' || '["80", "90"]') }}
+        arch: ${{ fromJSON(inputs.cuda == 'single' && '["80"]' || '["80", "90"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
