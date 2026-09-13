@@ -40,15 +40,16 @@ kept query–key pair is counted exactly once, so the result is exact.
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu126     # match your CUDA
-pip install stream-cqsa                                                 # from the release page: prebuilt wheel or pure-Python
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/latest/download/stream_cqsa-2.1.0-py3-none-any.whl   # pure-Python (Triton kernels)
 python -m stream_cqsa.doctor                                            # what this machine can run, and how far
 ```
 
 The package runs with **no compilation**: the CQS forward and backward kernels are also
 implemented in Triton, and the engine uses them whenever no extension is present. The
-release page carries wheels with the CUDA extension for common (python, torch, CUDA)
-pairs (`.github/workflows/wheels.yml` builds them); on any other combination the
-pure-Python wheel installs and the Triton kernels are used. From a checkout:
+release page also carries wheels with the CUDA extension for common (python, torch,
+CUDA) pairs (`.github/workflows/wheels.yml` builds them; pick the one matching your torch
+and CUDA versions); on any other combination use the pure-Python wheel above and the
+Triton kernels are used. From a checkout:
 `pip install -e . --no-build-isolation` (with the extension, 40-75 min of nvcc) or
 `CQSA_SKIP_EXT=1 pip install -e .` (no build). `pip install flash-attn` is optional and
 gives the monolithic fast path its own kernel.
