@@ -1,0 +1,6 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+1 {'device_ms': 288.820751953125, 'streams': [7, 21, 25], 'attn_kernels': 73}
+4 {'device_ms': 219.37728125, 'streams': [7, 49, 53, 57, 61, 65], 'attn_kernels': 73}
+16 {'device_ms': 217.556888671875, 'streams': [7, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 137], 'attn_kernels': 73}
+wrote timeline

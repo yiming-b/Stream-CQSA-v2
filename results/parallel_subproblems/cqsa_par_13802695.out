@@ -1,0 +1,18 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB
+co-tenants: 0
+NVIDIA A100-SXM4-80GB
+c= 7 ( 7 subproblems of L=56173): n_par= 1 ->   190.3 ms, peak 1.44 GiB
+c= 7 ( 7 subproblems of L=56173): n_par= 2 ->   152.4 ms, peak 1.44 GiB
+c= 7 ( 7 subproblems of L=56173): n_par= 4 ->   152.5 ms, peak 1.44 GiB
+c=31 (31 subproblems of L=25368): n_par= 1 ->   231.6 ms, peak 1.15 GiB
+c=31 (31 subproblems of L=25368): n_par= 2 ->   184.6 ms, peak 1.15 GiB
+c=31 (31 subproblems of L=25368): n_par= 4 ->   182.7 ms, peak 1.15 GiB
+c=31 (31 subproblems of L=25368): n_par= 8 ->   182.5 ms, peak 1.15 GiB
+c=31 (31 subproblems of L=25368): n_par=16 ->   183.8 ms, peak 1.15 GiB
+c=73 (73 subproblems of L=16159): n_par= 1 ->   286.1 ms, peak 1.15 GiB
+c=73 (73 subproblems of L=16159): n_par= 2 ->   224.0 ms, peak 1.15 GiB
+c=73 (73 subproblems of L=16159): n_par= 4 ->   218.7 ms, peak 1.15 GiB
+c=73 (73 subproblems of L=16159): n_par= 8 ->   219.4 ms, peak 1.15 GiB
+c=73 (73 subproblems of L=16159): n_par=16 ->   220.0 ms, peak 1.15 GiB
+monolithic FlashAttention-2: 88.1 ms
+wrote plots

@@ -896,3 +896,36 @@ Engine backward, itr=1 acc=GPU: 256K **1.87 s vs 2.48 s** CUDA (0.75x), 1M **29.
 - `notebooks/oom_boundary_demo.ipynb` (job 13802067, 57 s, A100-80GB, 3 GiB cap): N = 16K..1M explicitly; up to 512K the planner keeps the monolithic call and Stream-CQSA equals the baseline (e.g. 512K: 1.62 vs 1.64 s, 2.0 vs 2.5 GiB, 4.7e-4 both); at 1M SDPA OOMs and Stream-CQSA runs `c=13 itr=2 acc=cpu host-resident` in 21 s at a 2.0 GiB peak, 2.0e-4 vs float64.
 - `docs/stream_cqsa_demo.gif` (`docs/make_gif.py`, matplotlib): 45-frame schematic of host/GPU residency and data movement -- per-subproblem gather + H2D, kernel, partial (out_i, lse_i) D2H + merge into the host accumulator with the 'j/3' coverage counters; backward with dO and the global lse, partial gradients scatter-added. Embedded at the top of the README.
 - GIF redone per request: 73 frames at 0.8 fps, five separate steps per subproblem (gather / H2D / compute / D2H / merge or scatter-add) shown one at a time with a step banner; CPU+RAM and GPU-card icons (the card turns orange while computing); transfers drawn as arcs; dO+lse transfer in the backward as its own dashed arrow. `docs/make_gif.py`.
+
+## Phase 5 addendum: concurrent subproblems on one GPU (jobs 13802695, 13802771)
+
+Question: with small N and a large c, so that many subproblems fit on the device
+at once, what does running them concurrently buy, and in what order do they run?
+`next/bench/parallel_subproblems.py` (sweep) and `next/bench/parallel_timeline.py`
+(per-stream timeline from a Chrome trace; the profiler's Python events report
+every kernel on "stream 0", the exported trace carries the real stream id).
+A100-SXM4-80GB, N=131072, B=1 H=8 D=64 fp16 causal, itr=1, device-resident inputs,
+device accumulator, best of 3.
+
+| c (subproblems, L) | n_par=1 | 2 | 4 | 8 | 16 | peak |
+|---|---|---|---|---|---|---|
+| 7 (7 × 56K) | 190.3 ms | 152.4 | 152.5 | – | – | 1.44 GiB |
+| 31 (31 × 25K) | 231.6 | 184.6 | 182.7 | 182.5 | 183.8 | 1.15 GiB |
+| 73 (73 × 16K) | 286.1 | 224.0 | 218.7 | 219.4 | 220.0 | 1.15 GiB |
+| monolithic FlashAttention-2 | 88.1 ms | | | | | |
+
+Timeline (c=73, `parallel_subproblems_timeline.png`): device span 289 / 219 / 218 ms
+at n_par 1 / 4 / 16. Subproblems are issued round-robin over n_par streams in
+index order (0,1,2,3 on streams 0..3, then 4,5,6,7, ...). The attention kernels
+never overlap in time even with 16 streams: each kernel (L=16K × 8 heads =
+~1000 CTAs on 108 SMs) saturates the device, so the hardware scheduler runs them
+back to back, ~3.0 ms each, 73 × 3.0 ≈ 219 ms. What n_par ≥ 2 removes is the gap
+between consecutive kernels (gather of the l chunks, merge of the previous
+partial into the accumulator, the host-side launch latency), about 1 ms per
+subproblem at n_par=1. Beyond n_par=2 nothing is left to overlap, and peak memory
+does not grow with n_par because the caching allocator recycles each slot's
+buffers; the planner's measured-concurrency rule (n_par=2 on one A100) is
+therefore right for this regime as well. The remaining 2.5x over the monolithic
+call is the decomposition itself at this small N: (l²/c) = 81/73 pair work,
+short K/V loops per 16K subproblem, and the CQS tile-verdict overhead; the
+73-way split only pays when the monolithic call does not fit.
