@@ -10,7 +10,8 @@ and extended; nothing here touches the previous version.
       src/flash_fwd_launch_template.h   CQS_MODE_SWITCH with the wave modes
       src/wave_kernels.cu       wave_merge (deterministic batched merge), wave_scatter_add
       flash_api.cpp             fwd_wave / bwd_wave entry points + bindings
-    setup.py                    builds `cqsa_native` (CQSA_KERNEL_SET=native_dev: hdim64 fp16 fwd+bwd)
+    setup.py                    builds `cqsa_native` (CQSA_KERNEL_SET=native_common64: hdim64 fp16+bf16 forwards with the wave modes,
+                            every backward; head_dim=128 forwards run on cqsa_cuda -- their wave instantiations do not come out of ptxas)
     build.sh / build.slurm      CPU-node build (~20-40 min)
     test_wave.py                exactness tests (kernel == v11 bit for bit at W=1, engine vs fp64, bwd vs fp64, host pool)
     bench_wave.py               vs previous engine / FA-2, timeline plot

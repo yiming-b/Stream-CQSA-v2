@@ -82,6 +82,14 @@ def cqsa_sources(root: str = "csrc") -> list[str]:
     ]
     if root.startswith("native"):
         base.append(f"{root}/flash_attn/src/wave_kernels.cu")     # the wave merge / scatter-add kernels
+        # the native forward has wave modes for head_dim=64 only (fp16 + bf16); its hdim128
+        # forward instantiations do not come out of ptxas, so the extension ships the hdim64
+        # forwards and every backward, and head_dim=128 forwards run on cqsa_cuda
+        return base + [f"{root}/flash_attn/src/{f}" for f in (
+            "flash_fwd_hdim64_fp16_sm80.cu", "flash_fwd_hdim64_fp16_causal_sm80.cu",
+            "flash_fwd_hdim64_bf16_sm80.cu", "flash_fwd_hdim64_bf16_causal_sm80.cu",
+            "flash_bwd_hdim64_fp16_sm80.cu", "flash_bwd_hdim128_fp16_sm80.cu",
+            "flash_bwd_hdim64_bf16_sm80.cu", "flash_bwd_hdim128_bf16_sm80.cu")]
 
     kernel_set = cqsa_kernel_set()
     if kernel_set == "full":
@@ -181,6 +189,8 @@ def build_extension(name: str = "cqsa_cuda", root: str = "csrc"):
     define_macros = []
     if kernel_set != "full":
         define_macros.append(("CQSA_MINIMAL_FWD_KERNELS", None))
+    if root.startswith("native"):
+        define_macros.append(("CQSA_NATIVE_FWD_HDIM64_ONLY", None))
     if kernel_set == "a100_fp16_hdim64_noncau":
         define_macros.append(("CQSA_MINIMAL_HDIM64_NONCAUSAL_ONLY", None))
     if kernel_set == "common":

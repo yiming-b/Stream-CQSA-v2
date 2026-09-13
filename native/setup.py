@@ -14,8 +14,7 @@ PACKAGE_NAME = "stream-cqsa"
 
 
 def get_version() -> str:
-    cand = [THIS_DIR / "stream_cqsa" / "__init__.py", THIS_DIR.parent / "stream_cqsa" / "__init__.py"]
-    init_py = next(p for p in cand if p.exists()).read_text(encoding="utf-8")
+    init_py = (THIS_DIR / "stream_cqsa" / "__init__.py").read_text(encoding="utf-8")
     match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', init_py, re.MULTILINE)
     if not match:
         raise RuntimeError("Unable to find __version__ in stream_cqsa/__init__.py")
@@ -118,6 +117,19 @@ def cqsa_sources() -> list[str]:
             "csrc/flash_attn/src/flash_bwd_hdim64_fp16_sm80.cu",
             "csrc/flash_attn/src/flash_bwd_hdim128_fp16_sm80.cu",
         ]
+    if kernel_set == "native_common64":
+        # the shipping native set: wave modes exist for head_dim=64 (fp16 + bf16, causal and
+        # non-causal); the backward covers 64 and 128; head_dim=128 forward is served by cqsa_cuda
+        return base + [
+            "csrc/flash_attn/src/flash_fwd_hdim64_fp16_sm80.cu",
+            "csrc/flash_attn/src/flash_fwd_hdim64_fp16_causal_sm80.cu",
+            "csrc/flash_attn/src/flash_fwd_hdim64_bf16_sm80.cu",
+            "csrc/flash_attn/src/flash_fwd_hdim64_bf16_causal_sm80.cu",
+            "csrc/flash_attn/src/flash_bwd_hdim64_fp16_sm80.cu",
+            "csrc/flash_attn/src/flash_bwd_hdim128_fp16_sm80.cu",
+            "csrc/flash_attn/src/flash_bwd_hdim64_bf16_sm80.cu",
+            "csrc/flash_attn/src/flash_bwd_hdim128_bf16_sm80.cu",
+        ]
     if kernel_set == "native_dev":
         # fast iteration: hdim64 fp16 only, forward (causal + non-causal) and backward
         return base + [
@@ -194,6 +206,9 @@ def build_extension() -> CUDAExtension:
         define_macros.append(("CQSA_MINIMAL_BOTH_DTYPES", None))
     if kernel_set in ("native_dev", "native_fwd64"):
         define_macros.append(("CQSA_NATIVE_HDIM64_ONLY", None))
+    if kernel_set == "native_common64":
+        define_macros.append(("CQSA_NATIVE_FWD_HDIM64_ONLY", None))
+        define_macros.append(("CQSA_MINIMAL_BOTH_DTYPES", None))
 
 
     return CUDAExtension(
@@ -213,7 +228,7 @@ setup(
     name=PACKAGE_NAME,
     version=get_version(),
     description="CQSA: lightweight CUDA extension for CQS/CQSA forward kernels",
-    packages=[],
+    packages=find_packages(include=["stream_cqsa", "stream_cqsa.*"]),
     ext_modules=[build_extension()],
     cmdclass={"build_ext": BuildExtension.with_options(use_ninja=True)},
     python_requires=">=3.9",

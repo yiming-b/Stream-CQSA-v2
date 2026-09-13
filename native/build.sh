@@ -4,7 +4,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 export FLASH_ATTN_CUDA_ARCHS=${FLASH_ATTN_CUDA_ARCHS:-80}
-export CQSA_KERNEL_SET=${CQSA_KERNEL_SET:-native_dev}
+export CQSA_KERNEL_SET=${CQSA_KERNEL_SET:-native_common64}
 export MAX_JOBS=${MAX_JOBS:-8} NVCC_THREADS=${NVCC_THREADS:-4}
 cd "$HERE"
 python setup.py build_ext --inplace

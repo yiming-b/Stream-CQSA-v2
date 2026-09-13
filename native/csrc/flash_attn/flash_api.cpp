@@ -478,8 +478,9 @@ void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream, bool force_split
                 "CQSA_KERNEL_SET=full for other head dims.");
     FP16_SWITCH(!params.is_bf16, [&] {
         BOOL_SWITCH(params.is_causal, Is_causal, [&] {
-#ifdef CQSA_NATIVE_HDIM64_ONLY
-            TORCH_CHECK(params.d == 64, "this native dev build only has head_dim=64 kernels");
+#if defined(CQSA_NATIVE_HDIM64_ONLY) || defined(CQSA_NATIVE_FWD_HDIM64_ONLY)
+            TORCH_CHECK(params.d == 64, "this native build has forward kernels for head_dim=64 only "
+                        "(head_dim=128 runs on the classic engine / cqsa_cuda)");
             run_mha_fwd_<elem_type, 64, Is_causal>(params, stream);
 #else
             if (params.d == 64) {
