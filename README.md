@@ -50,9 +50,11 @@ implemented in Triton, and the engine uses them whenever no extension is present
 and gives the monolithic fast path its own kernel.
 
 While this repository is private the `git+ssh` line above (any account with access) is the
-install; once it is public, `git+https://...` works as well, and the release page can carry
-wheels (`.github/workflows/wheels.yml` builds a pure-Python wheel and CUDA-extension wheels
-for common python/torch/CUDA pairs on every `v*` tag):
+install; once it is public, `git+https://...` works as well, and the release page carries
+wheels: the pure-Python wheel is built by `.github/workflows/wheels.yml` on every `v*` tag,
+and a CUDA-extension wheel for torch 2.10 / CUDA 13 / sm80+sm90 (with the native wave
+kernel) is built on della and attached by hand (the hosted runner of a private repository,
+2 cores and 7 GB, cannot compile the kernels):
 `pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.0/stream_cqsa-2.1.0-py3-none-any.whl`.
 Publishing to PyPI (`pip install stream-cqsa`) is a separate step: the `pypi` job in the
 workflow uploads the pure wheel and the sdist when the repository variable `PYPI_PUBLISH`

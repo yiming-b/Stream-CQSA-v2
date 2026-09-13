@@ -10,6 +10,14 @@ on:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
+      build_cuda:
+        description: "also build the CUDA-extension wheels (needs a runner with >= 4 cores / 16 GB; the 2-core / 7 GB runner of a private repo cannot)"
+        type: boolean
+        default: false
+      runner:
+        description: "runner label for the CUDA jobs (e.g. a larger runner)"
+        type: string
+        default: "ubuntu-22.04"
       single:
         description: "build only one CUDA wheel (python 3.11, torch 2.6.0) to diagnose"
         type: boolean
@@ -30,8 +38,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: pure, path: dist/* }
 
+  # CUDA wheels: opt-in. Measured on the hosted runner of this private repo (2 cores,
+  # 7 GB): nvcc is terminated by the runner on the second file, and at one thread the
+  # 12 kernel files would need ~10 h on 2 cores against the 6 h limit. The CUDA wheel
+  # for our torch/CUDA pair is built on della (CQSA_BUILD_NATIVE=1 python setup.py
+  # bdist_wheel) and attached to the release by hand.
   cuda:
-    runs-on: ubuntu-22.04
+    if: ${{ inputs.build_cuda }}
+    runs-on: ${{ inputs.runner || 'ubuntu-22.04' }}
     timeout-minutes: 360
     strategy:
       fail-fast: false
@@ -70,7 +84,7 @@ jobs:
           FLASH_ATTN_CUDA_ARCHS: "80;90"
           CQSA_KERNEL_SET: common
           MAX_JOBS: "1"
-          NVCC_THREADS: "2"
+          NVCC_THREADS: "1"
         run: |
           echo "CUDA_HOME=$CUDA_HOME"; "$CUDA_HOME/bin/nvcc" --version | tail -1
           echo "--- machine before the build"; nproc; free -g; df -h / /tmp | tail -2
@@ -90,7 +104,7 @@ jobs:
 
   release:
     needs: [pure, cuda]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.pure.result == 'success'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@v4
