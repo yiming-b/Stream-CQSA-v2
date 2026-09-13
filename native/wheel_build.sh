@@ -12,5 +12,5 @@ cd /scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2
 rm -rf dist && mkdir -p dist      # keep build/: finished objects are reused
 echo "wheel build start $(date)"; t0=$(date +%s)
 python setup.py bdist_wheel --dist-dir dist 2>&1 | grep -v "^\s*$" | grep -iv "warning" | tail -30
-python -m wheel tags --build "cu130torch210sm80sm90" --remove dist/*.whl
+python -m wheel tags --build "1cu130torch210sm8090" --remove dist/*.whl
 echo "wheel build finished in $(( $(date +%s) - t0 )) s  $(date)"; ls -la dist

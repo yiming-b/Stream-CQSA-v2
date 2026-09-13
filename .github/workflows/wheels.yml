@@ -97,7 +97,7 @@ jobs:
           pip install wheel
           CU=$(echo ${{ matrix.cuda }} | cut -d. -f1,2 | tr -d .)
           TV=$(echo ${{ matrix.torch }} | cut -d. -f1,2)
-          for w in dist/*.whl; do python -m wheel tags --build "cu${CU}torch${TV}sm${{ matrix.arch }}" --remove "$w"; done
+          for w in dist/*.whl; do python -m wheel tags --build "1cu${CU}torch${TV}sm${{ matrix.arch }}" --remove "$w"; done
           ls dist
       - uses: actions/upload-artifact@v4
         with: { name: "cuda-py${{ matrix.python }}-torch${{ matrix.torch }}-cu${{ matrix.cuda }}-sm${{ matrix.arch }}", path: dist/*.whl }
