@@ -1121,6 +1121,10 @@ def stream_cqsa_forward(
     # Announce the call, show a progress bar over the subproblems with the time
     # remaining (stderr). None defers to the CQSA_VERBOSE environment variable.
     verbose: bool | None = None,
+    # Where the fp32 result is returned: None = the inputs' device (as before);
+    # "acc" = wherever the accumulator lives (host with low_memory=True), which
+    # spares a device copy the caller may not have room for.
+    out_device=None,
 ) -> tuple[torch.Tensor, dict[str, Any]]:
     """
     Stream-CQSA exact attention forward.
@@ -1787,7 +1791,9 @@ def stream_cqsa_forward(
                  end=t_start + info["wall_s"], status="done", stream_id=-1)
     info["stage_totals_ms"] = trace.stage_totals_ms() if trace.enabled else {}
     progress.close(f"{info['n_subproblems']} subproblems" + (f", {info['oom_retries']} OOM retries" if info['oom_retries'] else ""))
-    return out.to(device), info
+    if out_device == "acc":
+        return out, info
+    return out.to(device if out_device is None else out_device), info
 
 
 class _null_ctx:

@@ -92,6 +92,10 @@ stream_from_host=, max_parallel=, verbose=)`, `stream_cqsa_backward(..., itr="au
 `adapters.flex_inner(score_mod, extra_mask_mod)`, `distributed.dist_stream_cqsa_forward/_backward`
 under `torch.distributed`. `attention(..., kernel="wave"|"cuda"|"triton")` pins the kernel.
 
+`sbatch slurm/quickstart.slurm` runs all of the above on one GPU (`benchmarks/quickstart.py`;
+output in `results/quickstart/`): the dry run, the monolithic path, the decomposed path under
+a memory cap with progress, host-resident inputs, autograd, and a patched module.
+
 Notebooks (executed, outputs included): `notebooks/stream_cqsa_v2_demo.ipynb` runs every
 feature on one GPU; `notebooks/oom_boundary_demo.ipynb` sweeps N explicitly under a memory cap
 and shows the baseline matching Stream-CQSA below the boundary and OOM-ing above it while

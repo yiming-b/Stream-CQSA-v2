@@ -110,6 +110,7 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
     if scale is None:
         scale = float(D) ** -0.5
     on_cuda = q.device.type == "cuda"
+    out_device = q.device
     hw = hardware_from_dict(hardware) if isinstance(hardware, dict) else (hardware or detect_hardware())
     direction = "bwd" if torch.is_grad_enabled() and (q.requires_grad or k.requires_grad or v.requires_grad) else "fwd"
     p = _plan(N=N, B=B, H=H, D=D, dtype=q.dtype, causal=bool(is_causal), hardware=hw, direction=direction,
@@ -141,7 +142,24 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
 
     # ---- decomposed ------------------------------------------------------------
     kw = p.engine_kwargs() if p.mode != "mono" else dict(itr=1, c=7, interest_set=(0, 1, 3))
+    if on_cuda and kw.get("stream_from_host"):
+        # The inputs are on the device. Prefer the fastest configuration that leaves them
+        # there; stream from the host only if nothing device-resident fits (then a pinned
+        # host copy is made -- the caller's device tensors stay where they are).
+        dev_ok = [c for c in p.candidates if c["ok"] and c["mode"] == "cqsa" and not c["stream_from_host"]]
+        if dev_ok:
+            c0 = min(dev_ok, key=lambda c: c["time"])
+            kw = dict(itr=int(c0["itr"]), c=int(c0["c"]), interest_set=tuple(c0["interest_set"]),
+                      low_memory=(c0["acc"] == "cpu"), accumulate_on_gpu=(c0["acc"] == "gpu"),
+                      stream_from_host=False, max_parallel=int(c0["n_par"]), shared_chunks=False)
+        else:
+            if vb:
+                print("Stream-CQSA: no device-resident configuration fits; copying Q/K/V to pinned host memory and streaming", flush=True)
+            q, k, v = (t.detach().to("cpu").pin_memory() for t in (q, k, v))
+            on_cuda = False
     kw.update(overrides)
+    if not kw.get("stream_from_host"):
+        kw["shared_chunks"] = False
     use_wave = _pick_wave(kernel, kw, is_causal, q, direction)
     if vb:
         print(f"Stream-CQSA: {p.reason}", flush=True)
@@ -175,9 +193,41 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
                                    max_parallel=kw.get("max_parallel"))
         else:
             kw.setdefault("stream_from_host", host)
-            out, _ = stream_cqsa_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, **kw)
-    out = out.to(device=q.device, dtype=q.dtype)
+            # leave the fp32 result where the accumulator is; _deliver casts and moves it
+            out, _ = stream_cqsa_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, out_device="acc", **kw)
+    out = _deliver(out, out_device, q.dtype, vb)
     return (out, p) if return_plan else out
+
+
+def _deliver(out: torch.Tensor, device, dtype, vb: bool) -> torch.Tensor:
+    """Hand the result over in the caller's dtype and on the caller's device.
+
+    The engines return fp32; the cast needs room for a second copy. When the device
+    cannot take it, the cast is done in host memory and the result moved back; if
+    even the half-size result does not fit next to what the caller keeps on the
+    device, it is returned in host memory with a warning rather than failing after
+    the work is done."""
+    if out.dtype == dtype and out.device == device:
+        return out
+    try:
+        return out.to(device=device, dtype=dtype)
+    except Exception as exc:                                         # noqa: BLE001
+        if not _is_oom(exc):
+            raise
+    host = out.to("cpu") if out.device.type != "cpu" else out
+    del out
+    torch.cuda.empty_cache()
+    host = host.to(dtype)
+    if device.type == "cpu":
+        return host
+    try:
+        return host.to(device)
+    except Exception as exc:                                         # noqa: BLE001
+        if not _is_oom(exc):
+            raise
+    warnings.warn(f"Stream-CQSA: the result ({host.numel() * host.element_size() / 2**30:.1f} GiB) does not fit on {device} "
+                  f"next to what is already there; returning it in host memory.", RuntimeWarning, stacklevel=3)
+    return host
 
 
 def _pick_wave(kernel: str, kw: dict, is_causal: bool, q: torch.Tensor, direction: str) -> bool:
