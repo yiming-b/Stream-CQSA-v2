@@ -48,8 +48,7 @@ out, t = timed(lambda: attention(q, k, v, is_causal=True, verbose=True, hardware
 print(f"N={N} under a {CAP:.0f} GiB cap: {t:.2f} s, peak {torch.cuda.max_memory_allocated() / 2**30:.2f} GiB", flush=True)
 torch.cuda.set_per_process_memory_fraction(1.0)
 ref = F.scaled_dot_product_attention(q, k, v, is_causal=True)
-print(f"  result on {out.device} (the caller's Q/K/V fill the capped device, so it is handed back in host memory); "
-      f"rel. difference to the monolithic fp16 kernel: {rel(out.to(dev), ref):.1e}\n", flush=True)
+print(f"  result on {out.device}; rel. difference to the monolithic fp16 kernel: {rel(out.to(dev), ref):.1e}\n", flush=True)
 del q, k, v, out, ref; torch.cuda.empty_cache()
 
 # 4. host-resident inputs, larger N, the same call
@@ -66,7 +65,7 @@ del qh, kh, vh, out; torch.cuda.empty_cache()
 N = 1 << 18
 q, k, v = (torch.randn(1, H, N, D, device=dev, dtype=torch.float16, requires_grad=True) for _ in range(3))
 torch.cuda.set_per_process_memory_fraction(4.0 / total_gib)
-out = attention(q, k, v, is_causal=True, verbose=True, hardware={"cuda:0": "3GiB", "host": "200GiB"})
+out = attention(q, k, v, is_causal=True, verbose=True, hardware={"cuda:0": "1.5GiB", "host": "200GiB"})   # forward+backward must decompose
 out.float().sum().backward()
 torch.cuda.set_per_process_memory_fraction(1.0)
 q2, k2, v2 = (t_.detach().clone().requires_grad_(True) for t_ in (q, k, v))
