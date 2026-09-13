@@ -49,15 +49,19 @@ implemented in Triton, and the engine uses them whenever no extension is present
 (`pip install triton` if your torch did not bring it). `pip install flash-attn` is optional
 and gives the monolithic fast path its own kernel.
 
-Prebuilt wheels are on the release page: a pure-Python wheel (Triton kernels) built by
-`.github/workflows/wheels.yml` on every `v*` tag, CUDA-extension wheels per python / torch /
-CUDA / GPU architecture (sm80 = A100, sm90 = H100) from the same workflow, and a
-torch 2.10 / CUDA 13 / sm80+sm90 wheel with the native wave kernel built on della. Pick the
-one matching `python -c "import torch; print(torch.__version__)"` and your GPU, e.g.
-`pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.1/<wheel>.whl`;
-with no match, the pure wheel or the line above. Publishing to PyPI (`pip install stream-cqsa`)
-is the `pypi` job in the workflow, enabled by the repository variable `PYPI_PUBLISH=true` once
-the project is registered on PyPI with trusted publishing.
+Prebuilt wheels are on the [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.1.0):
+
+```bash
+# pure Python (Triton kernels, no compiler), any torch >= 2.5 with CUDA
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.0/stream_cqsa-2.1.0-py3-none-any.whl
+# CUDA extensions + native wave kernel: torch 2.10 / CUDA 13 / python 3.11, A100 (sm80) and H100 (sm90)
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.0/stream_cqsa-2.1.0-1cu130torch210sm8090-cp311-cp311-linux_x86_64.whl
+```
+
+Further CUDA wheels (torch 2.5/2.6, CUDA 12.4, per python and GPU architecture) come from
+`.github/workflows/wheels.yml`. Publishing to PyPI (`pip install stream-cqsa`) is the `pypi`
+job in the workflow, enabled by the repository variable `PYPI_PUBLISH=true` once the project
+is registered on PyPI with trusted publishing.
 
 With the CUDA extension, from a checkout: `pip install -e . --no-build-isolation`
 (40-75 min of nvcc; `CQSA_KERNEL_SET=common` covers fp16/bf16 and head dims 64/128).
