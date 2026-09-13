@@ -644,6 +644,13 @@ def effective_free_bytes(device) -> int:
     free bytes, capped by torch.cuda.set_per_process_memory_fraction when one
     is set (a memory cap used to simulate a smaller device).
     """
+    # Cached-but-free blocks of the caching allocator are not visible to the
+    # driver's free count; hand them back first so the plan sees the memory the
+    # call can actually use, not what the previous call happened to reserve.
+    try:
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
     free_b, total_b = torch.cuda.mem_get_info(device)
     # The fraction is kept per device INDEX; an index-less torch.device("cuda")
     # must be resolved to the current device or the lookup silently returns 1.0.
@@ -768,7 +775,11 @@ def plan_decomposition(
 
     l = len(interest_set)
     for itr in range(1, int(max_itr) + 1):
-        need = estimate_peak_bytes(N, itr, B=B, H=H, D=D, itemsize=itemsize, c=c, l=l,
+        # Feasibility with ONE subproblem in flight: concurrency is chosen after the
+        # depth and the engine halves it on an OOM, so a depth that fits at n_par=1 is
+        # runnable. Judging with n_par=2 sent N=16.8M to itr=3 (343 subproblems,
+        # 4900 s) where itr=2 runs in 42 GiB (the paper's 3277 s).
+        need = estimate_peak_bytes(N, itr, B=B, H=H, D=D, itemsize=itemsize, c=c, l=l, n_par=1,
                                    stream_from_host=stream_from_host,
                                    accumulate_on_gpu=accumulate_on_gpu)
         if need <= budget:
@@ -1097,6 +1108,10 @@ def stream_cqsa_forward(
     # to get a correct result. An explicit int is the opt-out, for reproducing a
     # specific decomposition depth.
     itr: int | str = "auto",
+    # Floor for the automatic depth: min_itr=1 with itr="auto" is the paper's
+    # "auto*" -- the planner still picks the depth, but never the monolithic call,
+    # so the cost of the decomposition below the boundary can be measured.
+    min_itr: int = 0,
     causal: bool = False,
     scale: float | None = None,
     inner: Callable | None = None,
@@ -1209,6 +1224,9 @@ def stream_cqsa_forward(
             stream_from_host=bool(host_resident),
             accumulate_on_gpu=bool(accumulate_on_gpu),
         )
+        if int(itr) < int(min_itr):
+            plan_reason = f"{plan_reason} | min_itr={int(min_itr)} applied (auto*)"
+            itr = int(min_itr)
 
     if int(itr) == 0:
         # Below the OOM boundary a monolithic call wins on both speed and
@@ -2228,6 +2246,9 @@ def stream_cqsa_backward(
     bwd_info: dict | None = None,
     task_subset: Sequence[int] | None = None,
     verbose: bool | None = None,
+    # Same meaning as in the forward. The backward's own planner never returns a
+    # depth below 1, so this only ever raises the depth further.
+    min_itr: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Stream-CQSA exact attention backward. All of q/k/v/dout/out are
@@ -2267,6 +2288,7 @@ def stream_cqsa_backward(
         itr, _reason = plan_decomposition_bwd(
             N, B=B, H=H, D=D, itemsize=q.element_size(), device=_dev, c=c, interest_set=tuple(interest_set),
             stream_from_host=host_resident, accumulate_on_gpu=bool(accumulate_on_gpu))
+        itr = max(int(itr), int(min_itr))
         if bwd_info is not None:
             bwd_info["plan_reason"] = _reason
     if host_resident:

@@ -13,4 +13,4 @@
 #SBATCH --error=outputs/next/paper/slurm_logs/%x_%j.err
 set -euo pipefail
 source /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/slurm/paper/common.sh
-srun python experiments/paper/run_paper_experiment.py --n 16777216 --dtypes fp16 --directions bwd --methods cqsa_acccpu --itr-list auto --reps 1 --warmup 0 --acc-rows 64 --dense-acc-max-n 0 --cooldown-s 5 --out-dir "$RUN_DIR" --tag next_xl
+srun python experiments/paper/run_paper_experiment.py --n 16777216 --dtypes fp16 --directions bwd --methods cqsa_acccpu --itr-list auto1 --isolate --reps 1 --warmup 0 --acc-rows 64 --dense-acc-max-n 0 --cooldown-s 5 --out-dir "$RUN_DIR" --tag next_xl

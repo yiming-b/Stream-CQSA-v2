@@ -13,4 +13,4 @@
 #SBATCH --error=outputs/next/paper/slurm_logs/%x_%j.err
 set -euo pipefail
 source /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/slurm/paper/common_triton.sh
-srun python experiments/paper/run_paper_experiment.py --preset accuracy --seeds 0,1,2,3,4 --methods sdpa,sdpa_flash,sdpa_mem,flash,cqsa_accgpu,cqsa_acccpu --out-dir "$RUN_DIR" --tag next_triton_accuracy
+srun python experiments/paper/run_paper_experiment.py --preset accuracy --itr-list auto1 --isolate --seeds 0,1,2,3,4 --methods sdpa,sdpa_flash,sdpa_mem,flash,cqsa_accgpu,cqsa_acccpu --out-dir "$RUN_DIR" --tag next_triton_accuracy

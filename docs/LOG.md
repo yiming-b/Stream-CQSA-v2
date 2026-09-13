@@ -1219,3 +1219,25 @@ Verified in a fresh venv: all three extensions import, `attention()` fp16 causal
 through the wave kernel 1.3e-4 vs SDPA, bf16 non-causal wave 2.6e-3 (bf16 precision).
 Attached to the GitHub release by hand (the hosted runner of a private repo could not
 build it; now public, the workflow's own matrix covers torch 2.5/2.6 + cu124).
+
+## Phase 9: the paper re-runs were measuring the old package -- fixed, re-run
+
+`experiments/paper/run_paper_experiment.py` put `packages/stream-cqsa` (v0.3.0, the
+v1 engine) at the front of `sys.path`, ahead of `next/pkg`. Every "next" paper job so
+far (native and Triton sets) therefore ran the v1 engine and its kernel: that is why
+the two sets agreed to 0.03% and why `CQSA_FORWARD=triton` had no effect. The harness
+now takes the package from `CQSA_PKG_NEXT` (set by `next/env_next.sh`).
+
+Three more changes for the re-run, from the user's review of the first tables:
+* **Flush between measurements**: `--isolate` runs every (method, N, dtype, direction,
+  itr) in a fresh subprocess (inputs regenerated from the seed), and each repetition
+  releases the previous one's outputs before it starts; the planner also returns
+  cached allocator blocks before it reads free memory. At N=2.1M the planner had seen
+  a 7.7 GiB budget (earlier methods' allocations still resident) and gone to depth 3.
+* **auto\*** (`--itr-list auto1`): `min_itr=1` on `stream_cqsa_forward/backward` --
+  automatic depth with a floor of 1, never the monolithic call, so the cost of the
+  decomposition against the baselines is measured below the boundary, as in the paper.
+* **Depth feasibility with one subproblem in flight**: judged with n_par=2, N=16.8M
+  went to itr=3 (343 subproblems, 4900 s); at n_par=1 itr=2 fits in 42 GiB.
+Smoke test (vis1): 8K-64K fwd/bwd rows come out at itr=1 with the v2 package
+(1.8e-4 vs FA-2 2.7e-4). All ten paper jobs resubmitted with the corrected harness.
