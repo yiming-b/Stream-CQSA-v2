@@ -1240,4 +1240,6 @@ Three more changes for the re-run, from the user's review of the first tables:
 * **Depth feasibility with one subproblem in flight**: judged with n_par=2, N=16.8M
   went to itr=3 (343 subproblems, 4900 s); at n_par=1 itr=2 fits in 42 GiB.
 Smoke test (vis1): 8K-64K fwd/bwd rows come out at itr=1 with the v2 package
-(1.8e-4 vs FA-2 2.7e-4). All ten paper jobs resubmitted with the corrected harness.
+(1.8e-4 vs FA-2 2.7e-4). All ten paper jobs resubmitted with the corrected harness;
+the v1-engine result files and the repo's `results/paper_rerun/` were deleted so that
+only the corrected runs remain.
