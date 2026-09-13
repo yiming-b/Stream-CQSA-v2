@@ -45,7 +45,9 @@ jobs:
         with:
           cuda: "${{ matrix.cuda }}"
           method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "cusparse", "cusolver", "curand", "nvrtc", "cccl"]'
+          # exactly what flash-attn's release workflow requests: nvcc pulls the runtime headers it needs
+          sub-packages: '["nvcc"]'
+          linux-local-args: '["--toolkit"]'
       - name: install torch
         run: |
           CU=$(echo ${{ matrix.cuda }} | cut -d. -f1,2 | tr -d .)
