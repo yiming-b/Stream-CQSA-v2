@@ -38,77 +38,59 @@ kept query–key pair is counted exactly once, so the result is exact.
 
 ## Install
 
-The package runs with **no compilation**: the CQS forward and backward kernels are
-also implemented in Triton (shipped with PyTorch), and the engine uses them
-whenever the CUDA extension is absent.
-
 ```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu130   # match your CUDA
-git clone https://github.com/yiming-b/Stream-CQSA-v2.git && cd Stream-CQSA-v2
-pip install -e . --no-build-isolation --no-deps --config-settings=--build-option=--skip-ext 2>/dev/null \
-  || PYTHONPATH=$PWD python -c "import stream_cqsa"                       # or just put the checkout on PYTHONPATH
-pip install flash-attn                                                  # optional: the monolithic fast path
+pip install torch --index-url https://download.pytorch.org/whl/cu126     # match your CUDA
+pip install stream-cqsa                                                 # from the release page: prebuilt wheel or pure-Python
+python -m stream_cqsa.doctor                                            # what this machine can run, and how far
 ```
 
-That is enough for everything in this README. The Triton kernels are as fast as
-or faster than the CUDA ones for subproblems up to ~100K tokens and within
-10–15% beyond (forward); the Triton backward is the fastest one in the package.
-Triton compiles each kernel configuration on first use (a few seconds, cached).
-
-**Optional CUDA extension** (buys 10–15% on the forward at 1M tokens and up;
-40–75 min of nvcc on 8 cores):
-
-```bash
-pip install ninja
-CQSA_KERNEL_SET=common pip install -e . --no-build-isolation             # fp16+bf16, head dims 64/128, sm80
-```
-
-**Native wave kernel** (optional, `native/`): `bash native/build.sh` builds `cqsa_native`
-(hdim64 fp16 by default, ~40 min); then `stream_cqsa.native_wave.wave_forward /
-wave_backward / wave_attention` run every subproblem of a wave in one launch. Tests and
-the benchmark: `sbatch native/run_test.slurm`.
-
-`setup.py` builds two extensions, `cqsa_cuda` (from `csrc/`, the v11 forward,
-causal calls) and `cqsa_cuda_nc` (from `csrc_nc/`, the v9 forward, non-causal
-calls; v11's non-causal instantiation is mis-compiled by ptxas, see the
-technical note). Environment switches: `CQSA_FORWARD=triton` /
-`CQSA_BACKWARD=triton` force the Triton kernels even when the extension is
-present; `CQSA_CUDA_MODULE` / `CQSA_CUDA_MODULE_NONCAUSAL` pick extension
-modules by name.
+The package runs with **no compilation**: the CQS forward and backward kernels are also
+implemented in Triton, and the engine uses them whenever no extension is present. The
+release page carries wheels with the CUDA extension for common (python, torch, CUDA)
+pairs (`.github/workflows/wheels.yml` builds them); on any other combination the
+pure-Python wheel installs and the Triton kernels are used. From a checkout:
+`pip install -e . --no-build-isolation` (with the extension, 40-75 min of nvcc) or
+`CQSA_SKIP_EXT=1 pip install -e .` (no build). `pip install flash-attn` is optional and
+gives the monolithic fast path its own kernel.
 
 ## Use
 
 ```python
-import torch
-from stream_cqsa import attention_oom_safe, stream_cqsa_attn, auto_attention
+import torch, stream_cqsa
 
 q, k, v = (torch.randn(1, 8, 4_000_000, 64, dtype=torch.float16) for _ in range(3))   # host or device
-
-out = attention_oom_safe(q, k, v, causal=True)            # SDPA first; Stream-CQSA only on OOM
-out = stream_cqsa_attn(q, k, v, causal=True)              # autograd; backward plans its own depth
-out, plan = auto_attention(q, k, v, causal=True,          # plan from a hardware budget, then run
-                           hardware={"cuda:0": "40GiB", "host": "256GiB"})
+out = stream_cqsa.attention(q, k, v, is_causal=True)          # SDPA's signature; exact, always fits
 ```
 
-Explicit control: `stream_cqsa_forward(q, k, v, itr=, c=, interest_set=, low_memory=,
-stream_from_host=, max_parallel=, shared_chunks=)` and `stream_cqsa_backward(...,
-itr="auto")`. Planner: `plan(N, B, H, D, dtype, causal, hardware, direction="fwd"|"bwd")`,
-`calibrate()`, `autotune()`. Devkit: `compare_kernels(inner_fn, mono_fn)`,
-`quick_bench()`. Adapters: `flex_inner(score_mod, extra_mask_mod)`. Multi-device:
-`distributed.dist_stream_cqsa_forward/_backward` under `torch.distributed`.
+That is the whole API for most uses. Below the memory boundary the call *is* the
+monolithic kernel; above it the planner chooses the decomposition from the free memory
+and the call runs exactly, on the best kernel available. Gradients flow when the inputs
+require them. To route an existing model without touching it:
 
-**Seeing what it does.** Every entry point takes `verbose=True` (or set
-`CQSA_VERBOSE=1`): the call announces how it was decomposed, shows a tqdm bar over
-the subproblems (or waves) with the elapsed time and the time remaining, and closes
-with the total. Before the first subproblem finishes the banner carries the planner's
-cost-model estimate; the bar's estimate takes over from there. Output goes to stderr.
+```python
+stream_cqsa.patch_sdpa()          # F.scaled_dot_product_attention now falls back to Stream-CQSA above 64K tokens
+with stream_cqsa.patched_sdpa():  # or scoped
+    model(...)
+```
 
+Seeing what it does, and what it would cost:
+
+```python
+out = stream_cqsa.attention(q, k, v, is_causal=True, verbose=True)   # or CQSA_VERBOSE=1
+#  Stream-CQSA: forward of N=4.0M tokens ... decomposed over c=31 at depth itr=1: 31 subproblems on cuda:0 | ... | expected ~2m10s
+#  Stream-CQSA: 100%|██████████| 31/31 [02:05<00:00,  4.05s/subproblem]
+#  Stream-CQSA: done in 2m06s (31 subproblems)
+stream_cqsa.estimate(16_777_216, H=8, D=64)     # dry run: monolithic fits?, chosen configuration, device/host memory, time
+stream_cqsa.calibrate()                         # ~1 min once per GPU model; saved to ~/.cache/stream_cqsa and used from then on
 ```
-Stream-CQSA: forward of N=262K tokens (B=1, H=8, D=64, causal) decomposed over c=7 at depth itr=1:
-             7 subproblems on cuda | 1 in flight, accumulator on cuda, Q/K/V streamed from host memory | expected ~0.6s (cost model)
-Stream-CQSA: 100%|██████████| 7/7 [00:01<00:00,  3.81subproblem/s]
-Stream-CQSA: done in 1.8s (7 subproblems)
-```
+
+Explicit control (all optional keyword overrides of `attention`, or the functions
+themselves): `stream_cqsa_forward(q, k, v, itr=, c=, interest_set=, low_memory=,
+stream_from_host=, max_parallel=, verbose=)`, `stream_cqsa_backward(..., itr="auto")`,
+`stream_cqsa_attn` (autograd), `native_wave.wave_forward/wave_attention` (the wave kernel),
+`plan(...)`, `autotune(...)`, `devkit.compare_kernels(inner_fn, mono_fn)`,
+`adapters.flex_inner(score_mod, extra_mask_mod)`, `distributed.dist_stream_cqsa_forward/_backward`
+under `torch.distributed`. `attention(..., kernel="wave"|"cuda"|"triton")` pins the kernel.
 
 Notebooks (executed, outputs included): `notebooks/stream_cqsa_v2_demo.ipynb` runs every
 feature on one GPU; `notebooks/oom_boundary_demo.ipynb` sweeps N explicitly under a memory cap

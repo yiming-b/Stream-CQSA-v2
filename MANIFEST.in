@@ -1,5 +1,6 @@
 recursive-include csrc *.cu *.cuh *.cpp *.h *.hpp *.inl *.py
 recursive-include csrc_nc *.cu *.cuh *.cpp *.h *.hpp *.inl *.py
+recursive-include native *.cu *.cuh *.cpp *.h *.hpp *.inl *.py *.sh *.slurm *.md
 recursive-include stream_cqsa *.py
 include README.md LICENSE
 recursive-include third_party *.txt

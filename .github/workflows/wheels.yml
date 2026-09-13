@@ -1,0 +1,77 @@
+# Prebuilt wheels, so that `pip install stream-cqsa` needs no compiler.
+#
+# On a tag `vX.Y.Z` (or by hand): one pure-Python wheel (Triton kernels, no
+# extension: runs anywhere Triton runs) and one binary wheel per (python, torch,
+# CUDA) pair with the CUDA extension for sm80/86/89/90. Wheels are attached to
+# the GitHub release; the install line in the README then resolves to them.
+name: wheels
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  pure:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install build setuptools wheel torch --index-url https://download.pytorch.org/whl/cpu
+      - name: build (no extension)
+        run: CQSA_SKIP_EXT=1 python -m build --wheel --sdist --no-isolation
+      - uses: actions/upload-artifact@v4
+        with: { name: pure, path: dist/* }
+
+  cuda:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+        torch: ["2.5.1", "2.6.0"]
+        cuda: ["12.4.1"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
+      - name: free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+      - uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: "${{ matrix.cuda }}"
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas", "cusparse", "cusolver", "curand", "nvrtc", "thrust"]'
+      - name: install torch
+        run: |
+          CU=$(echo ${{ matrix.cuda }} | cut -d. -f1,2 | tr -d .)
+          pip install setuptools wheel ninja packaging
+          pip install torch==${{ matrix.torch }} --index-url https://download.pytorch.org/whl/cu${CU}
+      - name: build
+        env:
+          FLASH_ATTN_CUDA_ARCHS: "80;86;89;90"
+          CQSA_KERNEL_SET: common
+          MAX_JOBS: "2"
+          NVCC_THREADS: "2"
+        run: python setup.py bdist_wheel --dist-dir dist
+      - name: tag the wheel with its torch/CUDA
+        run: |
+          pip install wheel
+          CU=$(echo ${{ matrix.cuda }} | cut -d. -f1,2 | tr -d .)
+          TV=$(echo ${{ matrix.torch }} | cut -d. -f1,2)
+          for w in dist/*.whl; do python -m wheel tags --build "cu${CU}torch${TV}" --remove "$w"; done
+          ls dist
+      - uses: actions/upload-artifact@v4
+        with: { name: "cuda-py${{ matrix.python }}-torch${{ matrix.torch }}-cu${{ matrix.cuda }}", path: dist/*.whl }
+
+  release:
+    needs: [pure, cuda]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

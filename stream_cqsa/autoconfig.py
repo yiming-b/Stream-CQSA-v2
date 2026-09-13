@@ -249,6 +249,52 @@ class CostModel:
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=1)
 
+    @classmethod
+    def from_json(cls, s: str) -> "CostModel":
+        d = json.loads(s)
+        cm = cls()
+        for k_, v_ in d.items():
+            if hasattr(cm, k_):
+                setattr(cm, k_, v_)
+        return cm
+
+
+# ---------------------------------------------------------------------------
+# calibration cache: one cost model per GPU model, on disk
+# ---------------------------------------------------------------------------
+def _cache_dir() -> str:
+    return os.environ.get("CQSA_CACHE_DIR") or os.path.join(os.path.expanduser("~"), ".cache", "stream_cqsa")
+
+
+def _gpu_key(device="cuda") -> str:
+    try:
+        name = torch.cuda.get_device_name(torch.device(device))
+    except Exception:
+        name = "cpu"
+    return "".join(ch if ch.isalnum() else "_" for ch in name).strip("_").lower()
+
+
+def _cost_model_cache_path(device="cuda") -> str:
+    return os.path.join(_cache_dir(), f"cost_model_{_gpu_key(device)}.json")
+
+
+def save_cost_model(cm: "CostModel", device="cuda") -> str:
+    path = _cost_model_cache_path(device)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(cm.to_json())
+    return path
+
+
+def load_cost_model(device="cuda") -> "CostModel | None":
+    """The cost model calibrated for this GPU model, if ``calibrate(save=True)`` ran here before."""
+    path = _cost_model_cache_path(device)
+    try:
+        with open(path) as f:
+            return CostModel.from_json(f.read())
+    except Exception:
+        return None
+
 
 # ---------------------------------------------------------------------------
 # candidates and the plan
@@ -312,7 +358,7 @@ def plan(*, N: int, B: int = 1, H: int = 8, D: int = 64, dtype=torch.float16, ca
     the forward and backward depths are chosen independently.
     """
     hw = hardware or detect_hardware()
-    cm = model or CostModel()
+    cm = model or load_cost_model() or CostModel()
     itemsize = torch.empty((), dtype=dtype).element_size()
     if not hw.devices:
         raise RuntimeError("no CUDA device in the hardware description")
@@ -401,7 +447,8 @@ def _cname(c: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def calibrate(hardware: HardwareSpec | None = None, *, N: int = 131072, B: int = 1, H: int = 8, D: int = 64,
-              dtype=torch.float16, causal: bool = True, device="cuda", verbose: bool = True) -> CostModel:
+              dtype=torch.float16, causal: bool = True, device="cuda", verbose: bool = True,
+              save: bool = True) -> CostModel:
     """
     Refit the cost model on this machine: time the monolithic kernel and three
     Stream-CQSA configurations (itr=1 acc=gpu; itr=1 acc=cpu host-resident;
@@ -466,6 +513,11 @@ def calibrate(hardware: HardwareSpec | None = None, *, N: int = 131072, B: int =
               f"gather {cm.gather_s_per_tok*1e9:.1f} ns/tok (host) {cm.gather_dev_s_per_tok*1e9:.1f} (dev); "
               f"merge {cm.merge_cpu_s_per_tok*1e9:.1f} ns/tok (cpu) {cm.merge_gpu_s_per_tok*1e9:.1f} (gpu); "
               f"d2h {cm.d2h_s_per_tok*1e9:.1f} ns/tok; task_overhead {cm.task_overhead_s*1e3:.2f} ms (c=31 vs 7); itr2/itr1 {p2['s']/p1['s']:.2f} -> depth_factor {cm.depth_factor:.2f}")
+    if save:
+        # persisted per GPU model: plan() picks it up automatically from now on
+        path = save_cost_model(cm, device)
+        if verbose:
+            print(f"calibrate: saved to {path} (plan() uses it automatically on this GPU model)")
     return cm
 
 

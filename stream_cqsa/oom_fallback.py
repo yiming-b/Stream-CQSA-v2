@@ -65,6 +65,28 @@ def _drain():
     torch.cuda.empty_cache()
 
 
+def oom_hint(N: int, B: int, H: int, D: int, itemsize: int, device=None) -> str:
+    """Which resident terms bind at this shape, and what would help."""
+    GIB = float(1 << 30)
+    per = N * B * H * D
+    out32, acc, qkv = per * 4 / GIB, (per * 4 + N * B * H * 8) / GIB, 3 * per * itemsize / GIB
+    grads = 3 * per * 4 / GIB
+    free = None
+    try:
+        if torch.cuda.is_available():
+            free = torch.cuda.mem_get_info(device)[0] / GIB
+    except Exception:
+        pass
+    parts = [f"resident terms at N={N:,} B={B} H={H} D={D}: fp32 output {out32:.1f} GiB, fp32 accumulator {acc:.1f} GiB, "
+             f"Q/K/V {qkv:.1f} GiB, fp32 gradients (backward) {grads:.1f} GiB"]
+    if free is not None:
+        parts.append(f"device free memory now {free:.1f} GiB")
+    parts.append("what helps: stream_from_host=True and low_memory=True keep Q/K/V and the accumulator in host memory "
+                 "(the fp32 output still needs its space); a smaller B, H or D shrinks every term; several devices "
+                 "(stream_cqsa.distributed) split them; run stream_cqsa.estimate(N, ...) to see what fits")
+    return "; ".join(parts)
+
+
 def attention_oom_safe(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -173,6 +195,7 @@ def attention_oom_safe(
     if out is None:
         raise torch.cuda.OutOfMemoryError(
             f"Stream-CQSA could not fit even at itr={max_itr}. "
+            + oom_hint(q.shape[2], q.shape[0], q.shape[1], q.shape[3], q.element_size(), out_device) + ". "
             + ("Pass release_inputs=True so Q/K/V can move to host memory."
                if not host else
                "Q/K/V are already host-resident; the device cannot hold even one "
@@ -319,5 +342,5 @@ def stream_cqsa_auto(q, k, v, *, causal=False, scale=None, return_info=False,
             _drain()
     raise torch.cuda.OutOfMemoryError(
         f"exhausted the escalation ladder ({len(tried)} rungs). The device cannot "
-        f"hold even one subproblem at the deepest setting; reduce N, H or D, or "
-        f"use a larger GPU.")
+        f"hold even one subproblem at the deepest setting. "
+        + oom_hint(q.shape[2], q.shape[0], q.shape[1], q.shape[3], q.element_size()))

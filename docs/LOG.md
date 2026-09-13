@@ -1109,3 +1109,42 @@ with the total and any OOM retries. Escalation keeps the bar's total honest
 (children replace the failed parent). The monolithic short-circuit prints one
 line saying no decomposition was needed. Everything goes to stderr. Verified on
 vis1 through every entry point, including the fallback under a 3 GiB cap.
+
+## Phase 8: a smooth user experience
+
+* `stream_cqsa.attention(q, k, v, attn_mask=None, dropout_p=0, is_causal=False,
+  scale=None)` (`api.py`): SDPA's signature. Plans from the free memory: when
+  the monolithic call fits it IS the monolithic call (bit-identical to SDPA);
+  otherwise the planner's configuration runs on the native wave kernel (hdim64
+  fp16, device accumulator), else the CUDA extension, else Triton
+  (`kernel=` pins it). Host or device inputs; output in the inputs' dtype and
+  device; autograd when the inputs require gradients (backward depth planned
+  separately). Masks, dropout, GQA and cross-attention are rejected with a
+  message pointing at the alternatives. `plan_only=True` / `return_plan=True`.
+* `patch_sdpa()` / `unpatch_sdpa()` / `patched_sdpa()`: route
+  `F.scaled_dot_product_attention` through it for the supported calls above
+  `min_tokens` (default 64K); everything else, and everything below, goes to the
+  original untouched.
+* `estimate(N, B, H, D, dtype, causal, hardware)`: the dry run -- monolithic
+  fits or not and its predicted time, the chosen configuration with device and
+  host memory and predicted time, the runners-up, for forward and backward.
+* `doctor()` / `python -m stream_cqsa.doctor` / `stream-cqsa-doctor`: versions,
+  kernels found (extension, native, Triton), devices and host memory, whether
+  the cost model is calibrated, the largest N the monolithic kernel and
+  Stream-CQSA handle here (forward and backward), and an exactness check.
+* Calibration cache: `calibrate(save=True)` (default) writes the fitted cost
+  model to `~/.cache/stream_cqsa/cost_model_<gpu>.json` (`CQSA_CACHE_DIR`);
+  `plan()` loads it automatically for that GPU model.
+* Clearer failures: the final OOM of `attention_oom_safe` / `stream_cqsa_auto`
+  lists the resident terms at that shape (fp32 output, accumulator, Q/K/V,
+  gradients), the free memory, and what helps; a one-time warning when
+  host-resident Q/K/V are head-major (the token-major copy costs 3 N H D bytes).
+* Packaging: `CQSA_SKIP_EXT=1` builds the pure-Python package (no torch at
+  build time); extras `[triton]`, `[progress]`, `[bench]`, `[test]`; console
+  script `stream-cqsa-doctor`; `.github/workflows/wheels.yml` builds a pure
+  wheel and CUDA wheels (python 3.10-3.12 x torch 2.5/2.6 x cu124, sm80/86/89/90,
+  `common` kernel set) and attaches them to the GitHub release on a `v*` tag.
+* Tests: `tests/test_api.py` (monolithic path bit-identical to SDPA, forced
+  decomposition exact for causal/non-causal, the three kernels agree,
+  host inputs under a memory cap, autograd, patch round trip incl. pass-through
+  of masked calls, rejections, estimate/doctor, cache round trip).

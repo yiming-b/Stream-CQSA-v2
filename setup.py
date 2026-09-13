@@ -5,8 +5,13 @@ from pathlib import Path
 
 from setuptools import find_packages, setup
 
-import torch
-from torch.utils.cpp_extension import BuildExtension, CUDAExtension, CUDA_HOME
+# CQSA_SKIP_EXT=1 builds the pure-Python package (the Triton kernels need no
+# compiler); the CUDA extensions are then not built and torch is not needed at
+# build time. This is what the pure wheel on the release page is.
+SKIP_EXT = os.getenv("CQSA_SKIP_EXT", "").strip().lower() in ("1", "true", "yes")
+if not SKIP_EXT:
+    import torch
+    from torch.utils.cpp_extension import BuildExtension, CUDAExtension, CUDA_HOME
 
 
 THIS_DIR = Path(__file__).resolve().parent
@@ -128,7 +133,7 @@ def cqsa_sources(root: str = "csrc") -> list[str]:
     )
 
 
-def build_extension(name: str = "cqsa_cuda", root: str = "csrc") -> CUDAExtension:
+def build_extension(name: str = "cqsa_cuda", root: str = "csrc"):
     if CUDA_HOME is None:
         raise RuntimeError("CUDA_HOME is not set. Activate a CUDA-enabled environment before building CQSA.")
     if torch.version.hip is not None:
@@ -202,8 +207,15 @@ setup(
     #   cqsa_cuda_nc  csrc_nc/  v9 forward: serves NON-causal calls (v11's non-causal CQS-on
     #                           instantiation is mis-compiled by ptxas -- an open issue)
     # The interface picks per call (CQSA_CUDA_MODULE / CQSA_CUDA_MODULE_NONCAUSAL).
-    ext_modules=[build_extension("cqsa_cuda", "csrc"), build_extension("cqsa_cuda_nc", "csrc_nc")],
-    cmdclass={"build_ext": BuildExtension.with_options(use_ninja=True)},
+    ext_modules=[] if SKIP_EXT else [build_extension("cqsa_cuda", "csrc"), build_extension("cqsa_cuda_nc", "csrc_nc")],
+    cmdclass={} if SKIP_EXT else {"build_ext": BuildExtension.with_options(use_ninja=True)},
     python_requires=">=3.9",
-    install_requires=["torch"],
+    install_requires=["torch", "numpy"],
+    extras_require={
+        "triton": ["triton"],                      # the no-build kernels
+        "progress": ["tqdm"],                      # verbose=True progress bars (a plain bar is used without it)
+        "bench": ["matplotlib", "tqdm"],
+        "test": ["pytest"],
+    },
+    entry_points={"console_scripts": ["stream-cqsa-doctor=stream_cqsa.doctor:_main"]},
 )

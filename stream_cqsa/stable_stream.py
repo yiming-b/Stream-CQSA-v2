@@ -1381,6 +1381,8 @@ def stream_cqsa_forward(
     if host_resident:
         # One-time transpose to token-major (~98 ms at N=32768); every
         # subproblem's gather is then a contiguous index_select on dim 1.
+        if not q.transpose(1, 2).is_contiguous():
+            _warn_head_major(N, H, D, q.element_size())
         q_tm = q.transpose(1, 2).contiguous()
         k_tm = k.transpose(1, 2).contiguous()
         v_tm = v.transpose(1, 2).contiguous()
@@ -1883,6 +1885,22 @@ def _global_dpsum(dout: torch.Tensor, out: torch.Tensor,
         dps[:, :, s0:e0] = (dout[:, :, s0:e0].float()
                             * out[:, :, s0:e0].float()).sum(-1)
     return dps
+
+
+_WARNED_HEAD_MAJOR = [False]
+
+
+def _warn_head_major(N, H, D, itemsize):
+    """Once per process: host tensors stored head-major cost a full token-major copy."""
+    if _WARNED_HEAD_MAJOR[0]:
+        return
+    _WARNED_HEAD_MAJOR[0] = True
+    import warnings
+    gb = 3 * N * H * D * itemsize / 2**30
+    warnings.warn(
+        f"Stream-CQSA: host-resident Q/K/V are stored head-major ([B,H,N,D] contiguous); streaming needs them "
+        f"token-major, so a {gb:.1f} GiB copy is made per call. Keep host tensors token-major "
+        f"(x.transpose(1,2).contiguous().transpose(1,2)) to avoid it.", RuntimeWarning, stacklevel=3)
 
 
 def _stream_cqsa_backward_host(

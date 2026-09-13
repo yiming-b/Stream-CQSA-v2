@@ -8,6 +8,9 @@ from .stable_stream import (
 from .oom_fallback import (stream_cqsa_auto, attention_oom_safe,
                            ESCALATION, ESCALATION_FAST)
 from .native_autograd import stream_cqsa_attn, StreamCQSAAttention
+from .api import attention, estimate, patch_sdpa, unpatch_sdpa, patched_sdpa, kernels_available
+from .doctor import doctor
+from .progress import verbose_enabled
 
 from .interface import (
     flash_attn_func,
@@ -39,6 +42,11 @@ from .memory_fitting import fitting_mem, pred_mem, best_seq_length, estimate_mem
 from .autograd_op import stream_cqsa_autograd
 
 __all__ = [
+    # --- the one-call API -------------------------------------------------
+    "attention",               # SDPA signature; monolithic when it fits, exact decomposition when it does not
+    "estimate",                # dry run: what a call would cost here
+    "patch_sdpa", "unpatch_sdpa", "patched_sdpa",
+    "doctor", "kernels_available",
     # --- primary entry points -------------------------------------------
     "stream_cqsa_auto",        # "just run it": escalates until it fits
     "stream_cqsa_forward",     # explicit forward, returns (out, lse)
