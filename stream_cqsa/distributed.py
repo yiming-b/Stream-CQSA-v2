@@ -137,8 +137,9 @@ def dist_stream_cqsa_backward(
     shard of the c**itr subproblems (`task_subset`) and obtains fp32 partial
     dq/dk/dv restricted to that shard's pair set. The gradient of each token
     is a plain sum over the subproblems that touch it, so the cross-rank step
-    is one all_reduce(SUM) per gradient, chunked over tokens. Every rank ends
-    with the full fp32 gradients (replicated).
+    is one all_reduce(SUM) per gradient, chunked over tokens and reduced in
+    place into the rank's partial buffers. Every rank ends with the full fp32
+    gradients (replicated).
     """
     if not (dist.is_available() and dist.is_initialized()):
         raise RuntimeError("torch.distributed must be initialised (torchrun)")
@@ -161,18 +162,20 @@ def dist_stream_cqsa_backward(
     t_local = time.perf_counter() - t0
 
     t1 = time.perf_counter()
-    outs = []
+    # Reduce in place: the reduced chunk is written back into the rank's own
+    # partial-gradient buffer. A second full-size copy per gradient (the
+    # previous `torch.empty_like(g)`) doubled the host footprint of the
+    # backward -- 3 x 4 GiB per M tokens per rank, 96 -> 192 GiB per rank at
+    # 16M -- for no reason: the partials are not needed once reduced.
     for g in grads:                                       # [B, H, N, D] fp32 views
-        full = torch.empty_like(g)
         for s in range(0, N, chunk_tokens):
             e = min(N, s + chunk_tokens)
             buf = g[:, :, s:e, :].to(dev, non_blocking=True).contiguous()
             dist.all_reduce(buf, op=dist.ReduceOp.SUM, group=group)
-            full[:, :, s:e, :].copy_(buf.to(full.device))
+            g[:, :, s:e, :].copy_(buf.to(g.device))
             del buf
-        outs.append(full)
     torch.cuda.synchronize(dev)
     t_merge = time.perf_counter() - t1
     info = dict(rank=rank, world=world, tasks_mine=mine, n_tasks=len(tasks),
                 t_local_s=t_local, t_merge_s=t_merge)
-    return (outs[0], outs[1], outs[2]), info
+    return (grads[0], grads[1], grads[2]), info
