@@ -14,11 +14,11 @@ on:
         description: "CUDA-extension wheels: none (pure wheel only) | single (one job: py3.11, torch 2.6, sm80, classic extension) | single-native (same, native wave kernel) | native-all (the 12 native cells) | all (full matrix, both)"
         type: choice
         options: ["none", "single", "single-native", "native-all", "all"]
+        default: "single"
       attach_to:
         description: "existing release tag to attach the wheels to (e.g. v2.1.1); empty = keep them as run artifacts"
         type: string
         default: ""
-        default: "single"
       runner:
         description: "runner label for the CUDA jobs (a larger runner if you have one)"
         type: string
