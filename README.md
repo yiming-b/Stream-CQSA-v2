@@ -154,6 +154,31 @@ accurate than the monolithic fp16 call (2.8e-4 vs 5.5e-4 at 1M). Kernel alone on
 the real subproblem: 30.2 → 24.4 ms (FA-2: 17.5 ms). Details and every other
 number: `docs/LOG.md`, `results/`.
 
+### One parameter at a time (`results/profile_sweep/`, forward, device-resident Q/K/V)
+
+Vary c at N=512K, itr=1, acc=GPU: time rises 16% from c=7 to c=133 (about 2.6 ms per extra
+subproblem); peak memory falls with c to a floor of 3.60 GiB (Q/K/V + fp32 output) from c=31.
+
+| c | 7 | 13 | 21 | 31 | 57 | 73 | 91 | 133 |
+|---|---|---|---|---|---|---|---|---|
+| time (s) | 1.99 | 2.01 | 2.04 | 2.08 | 2.15 | 2.19 | 2.24 | 2.32 |
+| peak (GiB) | 4.76 | 4.14 | 3.78 | 3.60 | 3.60 | 3.60 | 3.60 | 3.60 |
+
+Vary N at c=7 (x = N / 1e6; fits over 64K..2M, 5 runs per point): the quadratic coefficient is
+the kernel and is the same in every series; the depth and the accumulator only move the
+linear and constant overheads. Memory is linear in N.
+
+| series | time (s) | R² | peak (GiB) | R² | at 2M |
+|---|---|---|---|---|---|
+| itr=1, acc=GPU | 6.89x² + 0.19x + 0.00 | 1.0000 | 9.07x | 1.0000 | 30.7 s, 19.0 GiB |
+| itr=1, acc=CPU | 6.99x² + 1.09x + 0.20 | 1.0000 | 5.33x | 1.0000 | 33.2 s, 11.2 GiB |
+| itr=2, acc=GPU | 7.05x² + 0.50x + 0.05 | 1.0000 | 6.86x | 1.0000 | 32.1 s, 14.4 GiB |
+| itr=2, acc=CPU | 6.34x² + 2.52x + 1.04 | 0.9980 | 4.77x | 1.0000 | 34.3 s, 10.0 GiB |
+
+![profile sweep](results/profile_sweep/profile_sweep.png)
+
+Reproduce: `sbatch slurm/profile_sweep.slurm` (`benchmarks/profile_sweep.py run` then `fit`).
+
 ## License
 
 BSD-3-Clause (see `LICENSE`); vendored FlashAttention-2 and CUTLASS notices in `third_party/`.
