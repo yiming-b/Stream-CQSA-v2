@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.1.1 (2026-09-14)
+
+* Native wave kernel built for fp16 and bf16 at head dim 64 (head dim 128 forwards run on the
+  classic engine); `attention()` routes by a capability probe of the installed build.
+* `min_itr` (the paper's auto*) on the forward and backward; the depth planner returns cached
+  allocator blocks before reading free memory and judges feasibility with one subproblem in flight.
+* Paper harness: per-measurement process isolation (`--isolate`), imports the package under test.
+* Release wheels: CUDA-extension wheels per python / torch / CUDA / GPU architecture from the
+  workflow; a torch 2.10 / CUDA 13 wheel with the native kernel built on della.
+
 ## v2.1.0 (2026-09-13)
 
 * `stream_cqsa.attention(q, k, v, is_causal=...)`: one entry point with the signature of

@@ -49,13 +49,13 @@ implemented in Triton, and the engine uses them whenever no extension is present
 (`pip install triton` if your torch did not bring it). `pip install flash-attn` is optional
 and gives the monolithic fast path its own kernel.
 
-Prebuilt wheels are on the [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.1.0):
+Prebuilt wheels are on the [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.1.1):
 
 ```bash
 # pure Python (Triton kernels, no compiler), any torch >= 2.5 with CUDA
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.0/stream_cqsa-2.1.0-py3-none-any.whl
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.1/stream_cqsa-2.1.1-py3-none-any.whl
 # CUDA extensions + native wave kernel: torch 2.10 / CUDA 13 / python 3.11, A100 (sm80) and H100 (sm90)
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.0/stream_cqsa-2.1.0-1cu130torch210sm8090-cp311-cp311-linux_x86_64.whl
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.1/stream_cqsa-2.1.1-1cu130torch210sm8090-cp311-cp311-linux_x86_64.whl
 ```
 
 Further CUDA wheels (torch 2.5/2.6, CUDA 12.4, per python and GPU architecture) come from
