@@ -2,6 +2,7 @@
 cd /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev
 source next/env_next.sh
 export CQSA_CUDA_MODULE=cqsa_cuda_next_v11 CQSA_CUDA_MODULE_NONCAUSAL=cqsa_cuda_next_v9
+export CQSA_BACKWARD=cuda      # the native set measures the CUDA backward (the package default is now Triton)
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export RUN_DIR=outputs/next/paper/results
 mkdir -p "$RUN_DIR"

@@ -1243,3 +1243,41 @@ Smoke test (vis1): 8K-64K fwd/bwd rows come out at itr=1 with the v2 package
 (1.8e-4 vs FA-2 2.7e-4). All ten paper jobs resubmitted with the corrected harness;
 the v1-engine result files and the repo's `results/paper_rerun/` were deleted so that
 only the corrected runs remain.
+
+### Corrected paper re-run: interim results (small, large, xl, accuracy done; mid running)
+
+A100-SXM4-80GB, fp16, causal, B=1 H=8 D=64, auto* (itr >= 1), per-measurement isolation.
+`next/bench/paper_tables.py` prints the full tables. Highlights (native kernel set):
+
+| N | FA-2 fwd | Stream-CQSA fwd (acc=GPU) | FA-2 fwd+bwd | Stream-CQSA fwd+bwd (acc=GPU) |
+|---|---|---|---|---|
+| 1.05M | 7.7 s / 5.0 GiB | 11.2 s / 6.5 GiB (1.45x) | 24.9 s / 10.1 GiB | 52.1 s / 13.6 GiB (2.1x) |
+| 2.10M | 31.6 s / 10.1 GiB | 40.3 s / 13.0 GiB (1.28x) | 99.9 s / 20.1 GiB | 201.7 s / 27.3 GiB (2.0x) |
+| 4.19M | 131.5 s / 20.1 GiB | 153.9 s / 25.9 GiB (1.17x) | OOM | (mid job pending) |
+| 8.39M | OOM | (large: bwd only) | OOM | 4113 s (itr1, bwd escalated to 3) / acc=CPU 3213 s / 60.8 GiB |
+| 16.78M | OOM | acc=CPU itr2 2536 s / 32.0 GiB (paper v1: 3277 s / 41.5 GiB) | OOM | acc=CPU itr2 14420 s / 70.4 GiB (paper v1: 15847 s) |
+
+Below the boundary the cost against FA-2 is now 1.17-1.45x forward and 2.0-2.1x
+forward+backward (paper v1: 1.5-1.9x and 2.1-2.4x), with lower error than the
+fp16 kernel (1.7e-4 vs 2.7e-4 at 8K, 2.7e-4 vs 5.2e-4 at 1M: the fp32 merge).
+At 16.8M the planner now picks itr=2 (one-in-flight feasibility): 1.29x faster
+than v1 at less memory. SDPA mem-efficient's 38x backward cliff at 2.1M reproduced
+(3839 s). Triton set: forwards 1.1-1.16x slower than the CUDA kernel, backwards
+FASTER (8.4M: 2917 s vs 4113 s; 16.8M: 11522 s vs 14420 s) -- the Triton
+backward should become the default backward when Triton is present.
+Open: the backward planner still underestimates the monolithic/itr=1 backward
+peak at 8.4M with a device accumulator (three escalations, ~900 s wasted).
+
+### Backward: Triton by default; harness lets the backward plan its own depth
+
+* `interface.flash_attn_bwd_cqs_global_lse`: the Triton backward is now the default
+  whenever Triton imports (`CQSA_BACKWARD=cuda` restores the CUDA one). Basis: the
+  Triton backward was faster at every size measured (0.77x at L=56K; corrected paper
+  re-run 8.4M: 2917 s vs 4113 s, 16.8M: 11522 s vs 14420 s). `tests/test_backward_default.py`
+  checks fp16/bf16 x hdim 64/128 x causal/non-causal against SDPA's gradients (311 passed).
+* Paper harness: under auto* the backward now runs at the depth ITS planner picks
+  (`itr="auto", min_itr=1`) instead of the forward's depth, and the fp32 forward output
+  is released before the backward (17 GiB at 8.4M). The "bwd escalated to 3" rows at
+  8.4M came from pinning the backward to the forward's depth 1 with device gradients.
+  The native set pins `CQSA_BACKWARD=cuda` so it keeps measuring the CUDA backward.
+  `mid`, `large`, `xl` resubmitted for both sets with the corrected protocol.

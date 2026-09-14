@@ -338,6 +338,21 @@ def flash_attn_bwd_cqs_group_bits(
     return dQ, dK, dV
 
 
+_TRITON_BWD_OK = None
+
+
+def _triton_backward_available() -> bool:
+    global _TRITON_BWD_OK
+    if _TRITON_BWD_OK is None:
+        try:
+            import triton  # noqa: F401
+            from . import triton_kernel  # noqa: F401
+            _TRITON_BWD_OK = True
+        except Exception:
+            _TRITON_BWD_OK = False
+    return _TRITON_BWD_OK
+
+
 def flash_attn_bwd_cqs_global_lse(
     dout: torch.Tensor,
     q: torch.Tensor,
@@ -370,7 +385,13 @@ def flash_attn_bwd_cqs_global_lse(
     path), which consumes dNum/dDen and therefore needs ``Den = exp(lse)`` --
     infinite above ``lse ~= 88.7`` in fp32, silently zeroing the gradients.
     """
-    if cqsa_cuda is None or _os.environ.get("CQSA_BACKWARD", "").lower() == "triton":
+    # Default backward: the Triton kernel when Triton is present. Measured faster than
+    # the CUDA backward at every subproblem size (0.77x at L=56K; paper re-run at 8.4M:
+    # 2917 s vs 4113 s, at 16.8M: 11522 s vs 14420 s). CQSA_BACKWARD=cuda restores the
+    # CUDA backward; without Triton the CUDA backward is used.
+    want = _os.environ.get("CQSA_BACKWARD", "auto").lower()
+    use_triton = (want == "triton") or (cqsa_cuda is None) or (want == "auto" and _triton_backward_available())
+    if use_triton:
         # Zero-build path: the Triton backward (same global-lse contract).
         from .triton_kernel import cqs_attention_backward
         return cqs_attention_backward(dout, q, k, v, softmax_lse, cqs_group_bits, causal=causal,
