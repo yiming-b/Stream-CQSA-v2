@@ -93,6 +93,7 @@ jobs:
           python setup.py bdist_wheel --dist-dir dist
           echo "--- machine after the build"; free -g; df -h / | tail -1
       - name: tag the wheel with its torch/CUDA
+        continue-on-error: true       # a naming hiccup must never discard a multi-hour build
         run: |
           pip install wheel
           CU=$(echo ${{ matrix.cuda }} | cut -d. -f1,2 | tr -d .)
