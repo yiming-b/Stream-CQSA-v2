@@ -33,7 +33,8 @@ jobs:
       - name: build (no extension)
         run: CQSA_SKIP_EXT=1 python -m build --wheel --sdist --no-isolation
       - uses: actions/upload-artifact@v4
-        with: { name: pure, path: dist/* }
+        # artifacts only carry the wheels to the release step; the release page is the durable copy
+        with: { name: pure, path: dist/*, retention-days: 3 }
 
   # CUDA wheels, two per (python, torch, CUDA, arch) cell: `core` is stream-cqsa with the
   # classic extensions (cqsa_cuda, cqsa_cuda_nc); `native` is the companion wheel
@@ -107,7 +108,7 @@ jobs:
           for w in dist/*.whl; do python -m wheel tags --build "1cu${CU}torch${TV}sm${{ matrix.arch }}" --remove "$w"; done
           ls dist
       - uses: actions/upload-artifact@v4
-        with: { name: "cuda-${{ matrix.ext }}-py${{ matrix.python }}-torch${{ matrix.torch }}-cu${{ matrix.cuda }}-sm${{ matrix.arch }}", path: dist/*.whl }
+        with: { name: "cuda-${{ matrix.ext }}-py${{ matrix.python }}-torch${{ matrix.torch }}-cu${{ matrix.cuda }}-sm${{ matrix.arch }}", path: dist/*.whl, retention-days: 3 }
 
   release:
     needs: [pure, cuda]
