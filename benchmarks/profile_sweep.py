@@ -1,7 +1,7 @@
 """
 Profile Stream-CQSA configurations one parameter at a time (A100-80GB, forward pass).
 
-Fixed: B=1, H=8, D=64, fp16, causal, classic engine + v11 CUDA kernel, device-resident
+Fixed: B=1, H=8, D=64, fp16, causal, classic engine + the CUDA extension (cqsa_cuda), device-resident
 Q/K/V, two subproblems in flight, no escalation. Each configuration runs in its own
 subprocess (flushed GPU), 1 warm-up + `--reps` timed repetitions, peak memory reset per rep.
 
@@ -14,8 +14,6 @@ subprocess (flushed GPU), 1 warm-up + `--reps` timed repetitions, peak memory re
 import argparse, gc, json, os, subprocess, sys, time
 import numpy as np
 import torch
-os.environ.setdefault("CQSA_CUDA_MODULE", "cqsa_cuda_next_v11")
-os.environ.setdefault("CQSA_CUDA_MODULE_NONCAUSAL", "cqsa_cuda_next_v9")
 os.environ.setdefault("CQSA_BACKWARD", "cuda")
 
 B, H, D = 1, 8, 64
@@ -69,7 +67,7 @@ def run(out_dir, reps, warmup, only=None):
         key = (cfg["sweep"], cfg["c"], cfg["N"], cfg["itr"], cfg["acc"])
         if key in done: continue
         w = json.dumps(dict(cfg, reps=reps, warmup=warmup))
-        proc = subprocess.run([sys.executable, "-P", os.path.abspath(__file__), "worker", w], stdout=subprocess.PIPE, text=True)
+        proc = subprocess.run([sys.executable, os.path.abspath(__file__), "worker", w], stdout=subprocess.PIPE, text=True)
         line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("RESULT ")), None)
         r = json.loads(line[7:]) if line else dict(cfg, status="error", rc=proc.returncode)
         with open(path, "a") as f:

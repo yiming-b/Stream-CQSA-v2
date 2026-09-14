@@ -7,9 +7,11 @@
 #SBATCH --time=00:59:00
 #SBATCH --output=results/profile_sweep/%x_%j.out
 set -uo pipefail
-cd "$(dirname "$0")/.."
-source env.sh
-export CQSA_CUDA_MODULE=cqsa_cuda_next_v11 CQSA_CUDA_MODULE_NONCAUSAL=cqsa_cuda_next_v9 CQSA_BACKWARD=cuda
+# run from the repository root: sbatch slurm/profile_sweep.slurm (edit ROOT for another checkout)
+ROOT=${ROOT:-/scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2}
+cd "$ROOT"
+source "$ROOT/env.sh" 2>/dev/null || source /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/env.sh
+export CQSA_BACKWARD=cuda
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
-python -P -u benchmarks/profile_sweep.py run --out results/profile_sweep --reps 5 --warmup 1
-python -P -u benchmarks/profile_sweep.py fit --out results/profile_sweep
+python -u benchmarks/profile_sweep.py run --out results/profile_sweep --reps 5 --warmup 1
+python -u benchmarks/profile_sweep.py fit --out results/profile_sweep
