@@ -1281,3 +1281,53 @@ peak at 8.4M with a device accumulator (three escalations, ~900 s wasted).
   8.4M came from pinning the backward to the forward's depth 1 with device gradients.
   The native set pins `CQSA_BACKWARD=cuda` so it keeps measuring the CUDA backward.
   `mid`, `large`, `xl` resubmitted for both sets with the corrected protocol.
+
+## Phase 10: one-parameter profiles (c, N x {itr, acc}) and honest slurm memory requests
+
+2026-09-14. `benchmarks/profile_sweep.py` + `slurm/profile_sweep.slurm` (gpu-test, 59 min, 32G host).
+Forward pass, fp16 causal, B=1 H=8 D=64, classic engine + v11 CUDA kernel, Q/K/V on the device,
+two subproblems in flight, `allow_escalation=False`, one subprocess per configuration (GPU flushed),
+1 warm-up + 5 timed repetitions with `reset_peak_memory_stats` before each.
+
+- sweep 1: c in {7,13,21,31,57,73,91,133} at N=512K, itr=1, acc=GPU. c=91 and c=133 needed new
+  perfect difference sets (Singer, q=9 and q=11), now in `QUORUM_SETS`:
+  91: (0,20,28,37,60,70,73,84,85,89); 133: (0,1,15,18,20,24,31,52,60,85,95,107).
+- sweeps 2-5: N in {64K,128K,256K,512K,1M,2M}, c=7, (itr, acc) in {1,2} x {GPU, CPU};
+  quadratic fit of time and linear fit of peak device memory in N (R^2 reported).
+
+Also this phase: the cluster warned the user about over-generous `--mem`; every slurm header was
+re-sized from the host tensors actually held (profile/accuracy/native tests 32G, paper small 64G,
+mid 128G, large 192G, xl 320G, quickstart 80G), and the paper harness now records
+`mem_host_rss_peak_mib` (ru_maxrss of the measuring process) so the next sizing is measured.
+
+### Results (job 13874283, A100-SXM4-80GB, `results/profile_sweep/`)
+
+Vary c at N=512K, itr=1, acc=GPU (5 runs each, std <= 1 ms):
+
+    c        7     13     21     31     57     73     91    133
+    time s   1.989  2.009  2.037  2.076  2.154  2.189  2.235  2.315
+    peak GiB 4.76   4.14   3.78   3.60   3.60   3.60   3.60   3.60
+
+Time grows 16% from c=7 to c=133: ~2.6 ms per extra subproblem (launch + merge), the
+arithmetic being the same at every c. Peak memory falls with c because each subproblem
+holds l/c of the tokens (3/7 at c=7, 12/133 at c=133) and reaches the floor at c=31:
+3.60 GiB = Q/K/V 1.5 GiB + fp32 output 1.0 GiB + lse / merge scratch, below which the
+two in-flight subproblem workspaces no longer show.
+
+Vary N (c=7; time = quadratic fit in N/1e6, peak = linear fit; R^2 in brackets):
+
+    series            time [s]                                        peak [GiB]          2M point
+    itr=1 acc=GPU     6.886 x^2 + 0.189 x + 0.004   [1.0000]          9.07 x   [1.0000]   30.7 s  19.0 GiB
+    itr=1 acc=CPU     6.988 x^2 + 1.094 x + 0.203   [1.0000]          5.33 x   [1.0000]   33.2 s  11.2 GiB
+    itr=2 acc=GPU     7.047 x^2 + 0.500 x + 0.047   [1.0000]          6.86 x   [1.0000]   32.1 s  14.4 GiB
+    itr=2 acc=CPU     6.344 x^2 + 2.523 x + 1.035   [0.9980]          4.77 x   [1.0000]   34.3 s  10.0 GiB
+
+The quadratic coefficient is the kernel (6.9-7.0 s per M^2 tokens in every series: the
+decomposition does not change the arithmetic); the linear and constant terms are the
+overheads. acc=CPU adds ~1 s per M tokens (fp32 partial outputs streamed to the host and
+merged there) and itr=2 adds ~0.3 s per M plus a fixed ~0.05 s (GPU) / ~1 s (CPU) for 49
+launches instead of 7. Memory: Q/K/V alone are 3 GiB per M tokens; acc=GPU keeps the fp32
+output and lse on the device (+2 GiB per M) plus two in-flight workspaces, acc=CPU keeps
+only the inputs and the workspaces, and itr=2's smaller subproblems (9/49 of N) shrink the
+workspaces further. At 2M tokens the cheapest memory (itr=2, acc=CPU, 10.0 GiB) costs 12%
+more time than the fastest (itr=1, acc=GPU, 19.0 GiB).
