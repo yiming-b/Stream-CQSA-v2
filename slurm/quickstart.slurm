@@ -3,7 +3,7 @@
 #SBATCH --job-name=cqsa_quickstart
 #SBATCH --account=akey
 #SBATCH --qos=gpu-test
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=160G
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=80G
 #SBATCH --gres=gpu:a100:1 --constraint=gpu80
 #SBATCH --time=00:40:00
 #SBATCH --output=results/quickstart/%x_%j.out

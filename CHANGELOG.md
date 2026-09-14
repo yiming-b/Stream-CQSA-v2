@@ -8,7 +8,9 @@
   allocator blocks before reading free memory and judges feasibility with one subproblem in flight.
 * Paper harness: per-measurement process isolation (`--isolate`), imports the package under test.
 * Release wheels: CUDA-extension wheels per python / torch / CUDA / GPU architecture from the
-  workflow; a torch 2.10 / CUDA 13 wheel with the native kernel built on della.
+  workflow, each cell as two wheels (`stream_cqsa` with the classic extensions and the companion
+  `stream_cqsa_native` with the wave kernel, `CQSA_ONLY_NATIVE=1` in `setup.py`); a torch 2.10 /
+  CUDA 13 wheel with both built on della.
 
 ## v2.1.0 (2026-09-13)
 

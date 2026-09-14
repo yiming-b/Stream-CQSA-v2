@@ -15,7 +15,14 @@ if not SKIP_EXT:
 
 
 THIS_DIR = Path(__file__).resolve().parent
-PACKAGE_NAME = "stream-cqsa"
+# CQSA_ONLY_NATIVE=1 builds the COMPANION wheel `stream-cqsa-native`: just the
+# `cqsa_native` extension (the multi-subproblem wave kernel), no Python package.
+# Installed next to `stream-cqsa`, it is picked up automatically
+# (stream_cqsa.native_wave imports `cqsa_native` if present). Kept separate so
+# that each wheel fits a hosted CI runner's time limit; a source build of the
+# main package can still fold it in with CQSA_BUILD_NATIVE=1.
+ONLY_NATIVE = os.getenv("CQSA_ONLY_NATIVE", "").strip().lower() in ("1", "true", "yes")
+PACKAGE_NAME = "stream-cqsa-native" if ONLY_NATIVE else "stream-cqsa"
 
 
 def get_version() -> str:
@@ -208,6 +215,19 @@ def build_extension(name: str = "cqsa_cuda", root: str = "csrc"):
         extra_compile_args=extra_compile_args,
     )
 
+
+if ONLY_NATIVE and not SKIP_EXT:
+    setup(
+        name=PACKAGE_NAME,
+        version=get_version(),
+        description="Stream-CQSA native wave kernel (cqsa_native): companion extension for stream-cqsa",
+        packages=[],
+        ext_modules=[build_extension("cqsa_native", "native/csrc")],
+        cmdclass={"build_ext": BuildExtension.with_options(use_ninja=True)},
+        python_requires=">=3.9",
+        install_requires=["torch"],
+    )
+    raise SystemExit(0)
 
 setup(
     name=PACKAGE_NAME,

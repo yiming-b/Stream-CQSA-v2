@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH --constraint=gpu80
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=120G
+#SBATCH --mem=32G
 #SBATCH --time=4:00:00
 #SBATCH --output=outputs/next/paper/slurm_logs/%x_%j.out
 #SBATCH --error=outputs/next/paper/slurm_logs/%x_%j.err

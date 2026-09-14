@@ -58,8 +58,19 @@ pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.1/
 pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.1/stream_cqsa-2.1.1-1cu130torch210sm8090-cp311-cp311-linux_x86_64.whl
 ```
 
-Further CUDA wheels (torch 2.5/2.6, CUDA 12.4, per python and GPU architecture) come from
-`.github/workflows/wheels.yml`. Publishing to PyPI (`pip install stream-cqsa`) is the `pypi`
+The workflow (`.github/workflows/wheels.yml`) attaches two wheels per python 3.10/3.11/3.12 x
+torch 2.5.1/2.6.0 x CUDA 12.4 x GPU architecture (sm80 = A100, sm90 = H100) cell: `stream_cqsa`
+with the classic CUDA extensions and the companion `stream_cqsa_native` with the wave kernel.
+Install both; the package uses the wave kernel whenever it is present (`stream-cqsa-doctor` shows
+which kernels loaded):
+
+```bash
+V=v2.1.1; T=1cu124torch2.6sm80; PY=cp311     # pick your torch / CUDA / GPU / python
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa-2.1.1-$T-$PY-$PY-linux_x86_64.whl
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa_native-2.1.1-$T-$PY-$PY-linux_x86_64.whl
+```
+
+Publishing to PyPI (`pip install stream-cqsa`) is the `pypi`
 job in the workflow, enabled by the repository variable `PYPI_PUBLISH=true` once the project
 is registered on PyPI with trusted publishing.
 

@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       cuda:
-        description: "CUDA-extension wheels: none (pure wheel only) | single (one job: py3.11, torch 2.6, sm80, to test the runner) | all (full matrix)"
+        description: "CUDA-extension wheels: none (pure wheel only) | single (one job: py3.11, torch 2.6, sm80, classic extension) | single-native (same, native wave kernel) | all (full matrix, both)"
         type: choice
-        options: ["none", "single", "all"]
+        options: ["none", "single", "single-native", "all"]
         default: "single"
       runner:
         description: "runner label for the CUDA jobs (a larger runner if you have one)"
@@ -35,24 +35,26 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: pure, path: dist/* }
 
-  # CUDA wheels: opt-in. Measured on the hosted runner of this private repo (2 cores,
-  # 7 GB): nvcc is terminated by the runner on the second file, and at one thread the
-  # 12 kernel files would need ~10 h on 2 cores against the 6 h limit. The CUDA wheel
-  # for our torch/CUDA pair is built on della (CQSA_BUILD_NATIVE=1 python setup.py
-  # bdist_wheel) and attached to the release by hand.
+  # CUDA wheels, two per (python, torch, CUDA, arch) cell: `core` is stream-cqsa with the
+  # classic extensions (cqsa_cuda, cqsa_cuda_nc); `native` is the companion wheel
+  # stream-cqsa-native with the multi-subproblem wave kernel (cqsa_native). They are
+  # separate wheels because each is a ~2 h compile on a 4-core hosted runner against the
+  # 6 h limit; installed together, the package uses the wave kernel automatically.
+  # (Hosted runners of a PRIVATE repo have 2 cores / 7 GB and cannot build either.)
   cuda:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.cuda == 'single' || inputs.cuda == 'all' }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.cuda, 'single') || inputs.cuda == 'all' }}
     runs-on: ${{ inputs.runner || 'ubuntu-22.04' }}
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        python: ${{ fromJSON(inputs.cuda == 'single' && '["3.11"]' || '["3.10", "3.11", "3.12"]') }}
-        torch: ${{ fromJSON(inputs.cuda == 'single' && '["2.6.0"]' || '["2.5.1", "2.6.0"]') }}
+        python: ${{ fromJSON(startsWith(inputs.cuda, 'single') && '["3.11"]' || '["3.10", "3.11", "3.12"]') }}
+        torch: ${{ fromJSON(startsWith(inputs.cuda, 'single') && '["2.6.0"]' || '["2.5.1", "2.6.0"]') }}
         cuda: ["12.4.1"]
+        ext: ${{ fromJSON(inputs.cuda == 'single' && '["core"]' || inputs.cuda == 'single-native' && '["native"]' || '["core", "native"]') }}
         # one GPU architecture per job (A100 = sm80, H100 = sm90): keeps each job inside the
         # 6 h limit on a 4-core runner; the wheel name carries the arch
-        arch: ${{ fromJSON(inputs.cuda == 'single' && '["80"]' || '["80", "90"]') }}
+        arch: ${{ fromJSON(startsWith(inputs.cuda, 'single') && '["80"]' || '["80", "90"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -83,6 +85,8 @@ jobs:
           # archs exhausted the memory and the runner killed the job (exit 143).
           FLASH_ATTN_CUDA_ARCHS: "${{ matrix.arch }}"
           CQSA_KERNEL_SET: common
+          # native cell: the companion wheel stream-cqsa-native (cqsa_native only)
+          CQSA_ONLY_NATIVE: "${{ matrix.ext == 'native' && '1' || '' }}"
           # 4 cores / 16 GB: two files in flight, two threads each. One file at a time
           # left 14 GB unused and 2 of 12 jobs ran past the 6 h limit.
           MAX_JOBS: "2"
@@ -103,7 +107,7 @@ jobs:
           for w in dist/*.whl; do python -m wheel tags --build "1cu${CU}torch${TV}sm${{ matrix.arch }}" --remove "$w"; done
           ls dist
       - uses: actions/upload-artifact@v4
-        with: { name: "cuda-py${{ matrix.python }}-torch${{ matrix.torch }}-cu${{ matrix.cuda }}-sm${{ matrix.arch }}", path: dist/*.whl }
+        with: { name: "cuda-${{ matrix.ext }}-py${{ matrix.python }}-torch${{ matrix.torch }}-cu${{ matrix.cuda }}-sm${{ matrix.arch }}", path: dist/*.whl }
 
   release:
     needs: [pure, cuda]
