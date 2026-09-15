@@ -1,11 +1,21 @@
 # Changelog
 
-## Unreleased
+## Unreleased (v2.2.0)
 
-* Wave engine: host accumulator (`wave_forward(..., accumulate_on_gpu=False)`, the classic engine's
-  acc=CPU): each wave is merged on the device over the tokens it touches and folded into fp32 host
+* Wave engine on both kernels: `wave_forward(..., kernel="cuda"|"triton"|"auto")`. The Triton
+  wave kernel is the CQS Triton forward generalised to the wave layout (W subproblems padded to a
+  common length, per-subproblem tables and lengths, one launch per wave) with a deterministic
+  torch merge, so the wave engine needs no compiled extension; `attention(kernel="wave-cuda" |
+  "wave-triton")` selects it. The wave backward stays on the CUDA kernel.
+* Wave engine host accumulator (`accumulate_on_gpu=False`, the classic engine's acc=CPU) on both
+  kernels: each wave is merged on the device over the tokens it touches and folded into fp32 host
   accumulators; the device never holds the full output. `attention()` routes host-accumulator
-  forwards to the wave engine. Profile sweep gains a kernel axis (CUDA / wave / Triton).
+  forwards to the wave engine.
+* Quorum sets: c=3 {0,1} and c=133 {0,1,3,12,20,34,38,81,88,94,104,109} (both verified perfect
+  difference sets); the planner enumerates every registered set, so the automatic configuration
+  covers them.
+* Profile sweep with a kernel axis (classic CUDA / classic Triton / wave CUDA / wave Triton) and
+  c in {3, ..., 133}.
 
 ## v2.1.2 (2026-09-15)
 

@@ -90,7 +90,8 @@ def attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, attn_mask=None,
     q/k/v ``[B, H, N, D]`` fp16/bf16, on a device or in host memory. Returns the
     output in the inputs' dtype and device. Differentiable when the inputs require
     gradients. ``kernel``: "auto" (native wave kernel when built and applicable,
-    else the CUDA extension, else Triton), "wave", "cuda", "triton".
+    else the CUDA extension, else Triton), "wave" (wave engine, CUDA kernel when built else Triton),
+    "wave-cuda", "wave-triton", "cuda", "triton".
     ``overrides`` (itr=, c=, interest_set=, max_parallel=, ...) pin engine settings.
     ``plan_only=True`` returns the plan without computing anything.
     """
@@ -177,15 +178,16 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
     if use_wave:
         from .native_wave import wave_attention, wave_forward
         wkw = dict(itr=int(kw.get("itr", 1)), c=int(kw.get("c", 7)), interest_set=tuple(kw.get("interest_set", (0, 1, 3))))
+        wkern = WAVE_KERNELS.get(kernel, "auto")
         try:
             if direction == "bwd":
                 out = wave_attention(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, **wkw)
             else:
                 acc_gpu = not (kw.get("low_memory") or kw.get("accumulate_on_gpu") is False)
                 out, _ = wave_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose,
-                                      accumulate_on_gpu=acc_gpu, **wkw)
+                                      accumulate_on_gpu=acc_gpu, kernel=wkern, **wkw)
         except Exception as exc:                                     # noqa: BLE001
-            if not _is_oom(exc) or kernel == "wave":
+            if not _is_oom(exc) or kernel in WAVE_KERNELS:
                 raise
             # the wave engine keeps its accumulator on the device; the classic engine can offload it
             if vb:
@@ -195,7 +197,7 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
     if not use_wave:
         from .native_autograd import stream_cqsa_attn
         from .stable_stream import stream_cqsa_forward
-        if kernel == "triton":
+        if kernel in ("triton", "wave-triton"):
             os.environ["CQSA_FORWARD"] = "triton"; os.environ["CQSA_BACKWARD"] = "triton"
         host = not on_cuda
         if direction == "bwd":
@@ -243,13 +245,20 @@ def _deliver(out: torch.Tensor, device, dtype, vb: bool) -> torch.Tensor:
     return host
 
 
+WAVE_KERNELS = {"wave": "auto", "wave-cuda": "cuda", "wave-triton": "triton"}
+
+
 def _pick_wave(kernel: str, kw: dict, is_causal: bool, q: torch.Tensor, direction: str) -> bool:
-    if kernel == "wave":
+    if kernel in WAVE_KERNELS:
+        # the wave backward runs on the CUDA kernel only: a Triton-only wave request for a
+        # backward goes to the classic engine's Triton kernels
+        if direction != "fwd" and kernel == "wave-triton":
+            return False
         return True
     if kernel in ("cuda", "triton"):
         return False
     if kernel != "auto":
-        raise ValueError(f"kernel must be 'auto', 'wave', 'cuda' or 'triton' (got {kernel!r})")
+        raise ValueError(f"kernel must be 'auto', 'wave', 'wave-cuda', 'wave-triton', 'cuda' or 'triton' (got {kernel!r})")
     try:
         from .native_wave import native_available
         if not native_available():

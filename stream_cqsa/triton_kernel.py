@@ -46,6 +46,7 @@ LOG2E = 1.4426950408889634
 def _cqs_attn_fwd_kernel(
     Q, K, V, Out, Lse,
     BITS, BLK_OR, BLK_AND, RUN_S, RUN_E, NRUNS, MAXR,
+    LENS, bits_sb, blk_sb, run_sb,   # wave layout: per-batch length, and batch strides of the tables (0 = shared)
     sm_scale_log2,            # softmax scale * log2(e)
     L, NUM_BLK,
     stride_qb, stride_ql, stride_qh, stride_qd,
@@ -54,7 +55,7 @@ def _cqs_attn_fwd_kernel(
     stride_ob, stride_ol, stride_oh, stride_od,
     stride_lb, stride_lh, stride_ll,
     H,
-    CAUSAL: tl.constexpr, CQS: tl.constexpr,
+    CAUSAL: tl.constexpr, CQS: tl.constexpr, HAS_LENS: tl.constexpr,
     BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_D: tl.constexpr,
     CQS_BLK: tl.constexpr,
 ):
@@ -62,6 +63,15 @@ def _cqs_attn_fwd_kernel(
     pid_bh = tl.program_id(1)
     b = pid_bh // H
     h = pid_bh % H
+    if HAS_LENS:
+        L = tl.load(LENS + b)                       # this batch entry's real length (wave layout)
+    # wave layout: every batch entry (subproblem) has its own tables at b * stride
+    BITS = BITS + b * bits_sb
+    BLK_OR = BLK_OR + b * blk_sb
+    BLK_AND = BLK_AND + b * blk_sb
+    NRUNS = NRUNS + b * run_sb
+    RUN_S = RUN_S + b * run_sb * MAXR
+    RUN_E = RUN_E + b * run_sb * MAXR
 
     offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     offs_d = tl.arange(0, BLOCK_D)
@@ -323,6 +333,7 @@ def cqs_attention_forward(q, k, v, group_bits=None, *, causal: bool, scale: floa
     grid = (triton.cdiv(L, block_m), B * H)
     _cqs_attn_fwd_kernel[grid](
         q, k, v, out, lse, bits, blk_or, blk_and, run_s, run_e, n_runs, maxr,
+        n_runs, 0, 0, 0,
         float(scale) * LOG2E, L, num_blk,
         q.stride(0), q.stride(1), q.stride(2), q.stride(3),
         k.stride(0), k.stride(1), k.stride(2), k.stride(3),
@@ -330,7 +341,80 @@ def cqs_attention_forward(q, k, v, group_bits=None, *, causal: bool, scale: floa
         out.stride(0), out.stride(1), out.stride(2), out.stride(3),
         lse.stride(0), lse.stride(1), lse.stride(2),
         H,
-        CAUSAL=bool(causal), CQS=cqs,
+        CAUSAL=bool(causal), CQS=cqs, HAS_LENS=False,
+        BLOCK_M=block_m, BLOCK_N=block_n, BLOCK_D=D, CQS_BLK=64,
+        num_warps=num_warps, num_stages=num_stages,
+    )
+    return out, lse
+
+
+def live_runs_batched(blk_and: torch.Tensor, lens: torch.Tensor, S: int, block_r: int, block_c: int, cqs_blk: int = 64):
+    """
+    `live_runs` for a wave: W subproblems padded to S rows, summaries [W * (S // cqs_blk)],
+    real lengths `lens` [W]. Returns run_s, run_e int32 [W, R, MAXR], n_runs int32 [W, R],
+    MAXR, with R = S // block_r; fully vectorised (no per-subproblem loop).
+    """
+    dev = blk_and.device
+    W = int(lens.numel()); nblk = S // cqs_blk; R = S // block_r; C = S // block_c
+    a = blk_and.view(W, nblk)
+    row_and = a.view(W, R, block_r // cqs_blk)
+    row_and = row_and[:, :, 0].clone()
+    for j in range(1, block_r // cqs_blk):
+        row_and &= a.view(W, R, block_r // cqs_blk)[:, :, j]
+    col_and = a.view(W, C, block_c // cqs_blk)[:, :, 0].clone()
+    for j in range(1, block_c // cqs_blk):
+        col_and &= a.view(W, C, block_c // cqs_blk)[:, :, j]
+    L = lens.to(dev, torch.int64)[:, None]
+    row_full = (torch.arange(R, device=dev)[None, :] + 1) * block_r <= L        # [W, R]
+    col_full = (torch.arange(C, device=dev)[None, :] + 1) * block_c <= L        # [W, C]
+    row_key = torch.where(row_full, row_and, torch.zeros_like(row_and))          # partial row block: never masked
+    live = ~(col_full[:, None, :] & ((col_and[:, None, :] & row_key[:, :, None]) != 0))   # [W, R, C]
+    pad = torch.zeros((W, R, 1), dtype=torch.bool, device=dev)
+    d = torch.diff(torch.cat([pad, live, pad], dim=2).to(torch.int8), dim=2)       # [W, R, C+1]
+    st = torch.nonzero(d == 1); en = torch.nonzero(d == -1)                         # sorted (w, r, c)
+    n_runs = (d == 1).sum(2).to(torch.int32)                                        # [W, R]
+    maxr = max(1, int(n_runs.max().item()))
+    run_s = torch.zeros((W, R, maxr), dtype=torch.int32, device=dev)
+    run_e = torch.zeros((W, R, maxr), dtype=torch.int32, device=dev)
+    grp = st[:, 0] * R + st[:, 1]
+    first = torch.cumsum(n_runs.view(-1).to(torch.int64), 0) - n_runs.view(-1).to(torch.int64)
+    j = torch.arange(st.shape[0], device=dev) - first[grp]
+    run_s[st[:, 0], st[:, 1], j] = (st[:, 2] * block_c).to(torch.int32)
+    run_e[en[:, 0], en[:, 1], j] = torch.minimum(en[:, 2] * block_c, L[en[:, 0], 0]).to(torch.int32)
+    return run_s, run_e, n_runs, maxr
+
+
+def cqs_attention_forward_wave(q, k, v, bits, blk_or, blk_and, lens, *, S: int, causal: bool, scale: float,
+                               block_m: int = 128, block_n: int = 64, num_warps: int = 4, num_stages: int = 3):
+    """
+    Wave forward on the Triton kernel (the CUDA wave kernel's uniform layout): W subproblems
+    packed as [W * S, H, D] (each padded to S rows, S % 128 == 0), tables at w * stride:
+    bits int64 [W * S], summaries int64 [W * (S // 64)], real lengths `lens` int32 [W].
+    Returns (out fp32 [W * S, H, D], lse fp32 [W * S, H]); padding rows hold garbage and are
+    excluded by the caller's merge (token id -1). Keys beyond a subproblem's length are
+    masked by the length, so the layout serves causal and non-causal alike.
+    """
+    dev = q.device
+    R_, H, D = q.shape
+    W = int(lens.numel()); assert R_ == W * S and S % block_m == 0 and S % 64 == 0
+    lens = lens.to(dev, torch.int32).contiguous()
+    nblk = S // 64
+    run_s, run_e, n_runs, maxr = live_runs_batched(blk_and, lens, S, block_m, block_n, 64)
+    out = torch.empty(W * S, H, D, dtype=torch.float32, device=dev)
+    lse = torch.empty(W * S, H, dtype=torch.float32, device=dev)
+    R = S // block_m
+    grid = (R, W * H)
+    _cqs_attn_fwd_kernel[grid](
+        q, k, v, out, lse, bits, blk_or, blk_and, run_s, run_e, n_runs, maxr,
+        lens, S, nblk, R,
+        float(scale) * LOG2E, S, nblk,
+        S * q.stride(0), q.stride(0), q.stride(1), q.stride(2),
+        S * k.stride(0), k.stride(0), k.stride(1), k.stride(2),
+        S * v.stride(0), v.stride(0), v.stride(1), v.stride(2),
+        S * out.stride(0), out.stride(0), out.stride(1), out.stride(2),
+        S * H, 1, H,
+        H,
+        CAUSAL=bool(causal), CQS=True, HAS_LENS=True,
         BLOCK_M=block_m, BLOCK_N=block_n, BLOCK_D=D, CQS_BLK=64,
         num_warps=num_warps, num_stages=num_stages,
     )

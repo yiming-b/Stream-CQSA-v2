@@ -96,6 +96,34 @@ def native_supports(dtype, D: int, device="cuda") -> bool:
     return ok
 
 
+def triton_wave_available() -> bool:
+    try:
+        from . import triton_kernel  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def resolve_wave_kernel(kernel: str, dtype, D: int) -> str:
+    """'auto' -> 'cuda' when cqsa_native is importable and built for (dtype, D), else 'triton'."""
+    k = (kernel or "auto").lower().replace("-", "_").replace("wave_", "")
+    if k == "auto":
+        if native_available() and native_supports(dtype, int(D)):
+            return "cuda"
+        if triton_wave_available():
+            return "triton"
+        raise RuntimeError("no wave kernel available: build cqsa_native or pip install triton")
+    if k == "cuda":
+        if not native_available():
+            raise RuntimeError("wave kernel 'cuda' needs the cqsa_native extension")
+        return "cuda"
+    if k == "triton":
+        if not triton_wave_available():
+            raise RuntimeError("wave kernel 'triton' needs triton (pip install triton)")
+        return "triton"
+    raise ValueError(f"wave kernel must be 'auto', 'cuda' or 'triton' (got {kernel!r})")
+
+
 # ---------------------------------------------------------------------------
 # Tasks (shape-only; cached)
 # ---------------------------------------------------------------------------
@@ -259,12 +287,55 @@ def _budget_tokens(device, per_token: int, reserved: int, fraction: float, cap: 
 # ---------------------------------------------------------------------------
 # Forward
 # ---------------------------------------------------------------------------
-def _merge_wave_to_host(ext, acc_h, l_h, m_h, out_pack, lse_pack, tb, stage, dev):
+MERGE_CHUNK_TOKENS = 1 << 18
+
+
+def merge_rows_torch(acc, acc_l, acc_m, out_pack, lse_pack, order, seg, uniq):
     """
-    acc=CPU merge of one wave: the packed (out, lse) rows are merged on the device into
-    accumulators over the U tokens this wave touches (``tb.uniq``), copied to pinned host
-    memory, and folded into the host accumulators with the max-shifted formula the device
-    merge uses, so the result equals the acc=GPU path up to fp32 summation order.
+    The wave merge in plain torch (the Triton path; no extension): rows ``order`` are grouped
+    by token (``seg`` segments, tokens ``uniq``); each token's rows are combined in a fixed
+    order into a [maxc]-wide gather, then folded into the accumulators with the max-shifted
+    formula. Deterministic (no atomics). out_pack [total, H, D] fp32, lse_pack [total, H] fp32.
+    """
+    dev = out_pack.device
+    n = int(order.numel()); U = int(uniq.numel())
+    if n == 0:
+        return
+    H, D = out_pack.shape[1], out_pack.shape[2]
+    counts = (seg[1:] - seg[:-1]).to(torch.int64)
+    maxc = int(counts.max().item())
+    sentinel = out_pack.shape[0]
+    out_ext = torch.cat([out_pack, out_pack.new_zeros((1, H, D))])
+    lse_ext = torch.cat([lse_pack, lse_pack.new_full((1, H), float("-inf"))])
+    row_u = torch.repeat_interleave(torch.arange(U, device=dev), counts)
+    col = torch.arange(n, device=dev) - torch.repeat_interleave(seg[:-1].to(torch.int64), counts)
+    idx = torch.full((U, maxc), sentinel, dtype=torch.int64, device=dev)
+    idx[row_u, col] = order
+    for u0 in range(0, U, MERGE_CHUNK_TOKENS):
+        ix = idx[u0:u0 + MERGE_CHUNK_TOKENS]                           # [u, maxc]
+        tok = uniq[u0:u0 + MERGE_CHUNK_TOKENS]
+        lse_g = lse_ext[ix]                                            # [u, maxc, H]
+        m_w = lse_g.amax(dim=1)                                        # [u, H]
+        m_safe = torch.where(torch.isfinite(m_w), m_w, torch.zeros_like(m_w))
+        w = torch.exp(lse_g - m_safe[:, None, :])                      # sentinel / -inf rows -> 0
+        l_w = w.sum(1)
+        acc_w = torch.einsum("ujh,ujhd->uhd", w, out_ext[ix])
+        m_old = acc_m[tok]
+        m_new = torch.maximum(m_old, m_w)
+        m_new_safe = torch.where(torch.isfinite(m_new), m_new, torch.zeros_like(m_new))
+        w_old = torch.exp(m_old - m_new_safe); w_new = torch.exp(m_w - m_new_safe)
+        acc[tok] = acc[tok] * w_old.unsqueeze(-1) + acc_w * w_new.unsqueeze(-1)
+        acc_l[tok] = acc_l[tok] * w_old + l_w * w_new
+        acc_m[tok] = m_new
+
+
+def _merge_wave_to_host(merge_fn, acc_h, l_h, m_h, tb, stage, dev):
+    """
+    acc=CPU merge of one wave: ``merge_fn(acc, l, m, uniq)`` merges the wave's packed rows on
+    the device into accumulators over the U tokens this wave touches (``tb.uniq`` remapped to
+    0..U-1); the triple is copied to pinned host memory and folded into the host accumulators
+    with the max-shifted formula the device merge uses, so the result equals the acc=GPU path
+    up to fp32 summation order.
     """
     U = int(tb.uniq.numel())
     H, D = acc_h.shape[1], acc_h.shape[2]
@@ -272,7 +343,7 @@ def _merge_wave_to_host(ext, acc_h, l_h, m_h, out_pack, lse_pack, tb, stage, dev
     l_w = torch.zeros((U, H), device=dev, dtype=torch.float32)
     m_w = torch.full((U, H), float("-inf"), device=dev, dtype=torch.float32)
     local = torch.arange(U, device=dev, dtype=tb.uniq.dtype)
-    ext.wave_merge(acc_w, l_w, m_w, out_pack, lse_pack, tb.order, tb.seg, local, int(tb.S))
+    merge_fn(acc_w, l_w, m_w, local)
     sa, sl, sm = (t[:U] for t in stage)
     sa.copy_(acc_w, non_blocking=True); sl.copy_(l_w, non_blocking=True); sm.copy_(m_w, non_blocking=True)
     idx = tb.uniq.to("cpu", non_blocking=True)
@@ -292,9 +363,11 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
                  itr: int = 1, c: int = 7, interest_set: Sequence[int] = (0, 1, 3),
                  max_wave_tokens: Optional[int] = None, max_wave_subproblems: Optional[int] = None,
                  memory_fraction: float = 0.85, device=None, pool_slots: Optional[int] = None,
-                 accumulate_on_gpu: bool = True, verbose: Optional[bool] = None):
+                 accumulate_on_gpu: bool = True, kernel: str = "auto", verbose: Optional[bool] = None):
     """
-    Exact attention by CQS decomposition on the native wave kernel.
+    Exact attention by CQS decomposition on the wave kernel: ``kernel="cuda"`` (cqsa_native,
+    the fast path), ``"triton"`` (the same wave layout on the Triton kernel, no build), or
+    ``"auto"`` (CUDA when the extension is built for this dtype and head dim, else Triton).
 
     q/k/v: ``[B, H, N, D]`` fp16/bf16, on the device (read in place, no gather)
     or on the host (streamed into a device chunk pool wave by wave).
@@ -305,8 +378,11 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
     into fp32 accumulators in host memory with the same max-shifted merge; ``out`` and
     ``lse`` come back on the host and the device never holds the full fp32 output.
     """
-    ext = native_ext()
     B, H, N, D = q.shape
+    kern = resolve_wave_kernel(kernel, q.dtype, D)
+    ext = native_ext() if kern == "cuda" else None
+    if kern == "triton":
+        from .triton_kernel import cqs_attention_forward_wave
     dev = torch.device(device) if device is not None else (q.device if q.is_cuda else torch.device("cuda"))
     scale = float(D ** -0.5 if scale is None else scale)
     tasks = wave_tasks(N, itr, c, interest_set, H=H, D=D, itemsize=q.element_size())
@@ -352,11 +428,11 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
     info = dict(n_subproblems=len(tasks), n_waves=len(waves), wave_sizes=[len(w) for w in waves],
                 wave_tokens=[sum(int(t.local_size) for t in w) for w in waves], max_wave_tokens=int(max_tokens),
                 itr=int(itr), c=int(c), interest_set=tuple(interest_set), host_resident=not on_device,
-                accumulate_on_gpu=acc_gpu, pool_slots=(None if pool is None else pool.n_slots))
+                accumulate_on_gpu=acc_gpu, kernel=kern, pool_slots=(None if pool is None else pool.n_slots))
     total_tokens = sum(int(t.local_size) for t in tasks) * B
     progress = Progress(
         total_tokens, enabled=verbose_enabled(verbose), unit="tok",
-        banner=describe_call(what="forward (native wave kernel)", N=N, B=B, H=H, D=D, c=int(c), itr=int(itr),
+        banner=describe_call(what=f"forward (wave engine, {kern} kernel)", N=N, B=B, H=H, D=D, c=int(c), itr=int(itr),
                              n_tasks=len(tasks), causal=bool(causal), device=str(dev),
                              extra=f"{len(waves)} wave{'s' if len(waves) != 1 else ''} of {info['wave_sizes']} subproblems"
                                    + (f", chunk pool of {pool.n_slots} slots" if pool is not None else ", Q/K/V read in place")),
@@ -372,6 +448,39 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
         if on_device:
             qt, kt, vt = (t[b].transpose(0, 1) for t in (q, k, v))       # [N, H, D] strided views, read in place
         for wave in waves:
+            if kern == "triton":
+                # uniform layout for both causal and non-causal (the kernel masks keys by length);
+                # the wave is gathered into a packed tensor (the Triton kernel has no block map)
+                tb = build_wave_tables(wave, dev, uniform=True)
+                valid = tb.tok >= 0
+                pos = torch.nonzero(valid).squeeze(1)
+                if on_device:
+                    src = tb.tok[valid]
+                    srcs = (qt, kt, vt)
+                else:
+                    with _cpu_threads(CPU_THREADS):
+                        pool.load(wave, interest_set, b, q_tm, k_tm, v_tm)
+                    src = pool.rows_of_global(tb.tok[valid].cpu()).to(dev, non_blocking=True)
+                    srcs = (pool.q, pool.k, pool.v)
+                def gather_t(t):
+                    g = torch.zeros((tb.total, H, D), device=dev, dtype=t.dtype)
+                    g[pos] = t[src]
+                    return g
+                qs, ks, vs = (gather_t(t) for t in srcs)
+                lens = torch.tensor([int(t.local_size) for t in wave], dtype=torch.int32, device=dev)
+                out_pack, lse_pack = cqs_attention_forward_wave(qs, ks, vs, tb.bits, tb.blk_or, tb.blk_and, lens,
+                                                                S=int(tb.S), causal=bool(causal), scale=scale)
+                del qs, ks, vs
+                merge_fn = lambda a, l, m, uniq: merge_rows_torch(a, l, m, out_pack, lse_pack, tb.order, tb.seg, uniq)
+                if acc_gpu:
+                    merge_fn(acc, acc_l, acc_m, tb.uniq)
+                else:
+                    _merge_wave_to_host(merge_fn, acc, acc_l, acc_m, tb, stage, dev)
+                if progress.enabled:
+                    torch.cuda.synchronize(dev)
+                progress.update(sum(int(t.local_size) for t in wave))
+                del out_pack, lse_pack, tb
+                continue
             # causal: uniform layout (batch of W padded sequences); non-causal: varlen layout
             tb = build_wave_tables(wave, dev, uniform=bool(causal))
             if on_device and (N % SEG_ALIGN == 0 or tb.S == 0):
@@ -400,7 +509,8 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
             if acc_gpu:
                 ext.wave_merge(acc, acc_l, acc_m, out_pack, lse_pack, tb.order, tb.seg, tb.uniq, int(tb.S))
             else:
-                _merge_wave_to_host(ext, acc, acc_l, acc_m, out_pack, lse_pack, tb, stage, dev)
+                merge_fn = lambda a, l, m, uniq: ext.wave_merge(a, l, m, out_pack, lse_pack, tb.order, tb.seg, uniq, int(tb.S))
+                _merge_wave_to_host(merge_fn, acc, acc_l, acc_m, tb, stage, dev)
             if progress.enabled:
                 torch.cuda.synchronize(dev)      # the bar reports finished work, not queued launches
             progress.update(sum(int(t.local_size) for t in wave))
@@ -413,7 +523,7 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
     del acc, acc_l, acc_m, stage
     if pool is not None:
         pool.release()
-    progress.close(f"{len(tasks)} subproblems in {len(waves)} wave{'s' if len(waves) != 1 else ''}")
+    progress.close(f"{len(tasks)} subproblems in {len(waves)} wave{'s' if len(waves) != 1 else ''} ({kern} kernel)")
     return out, info
 
 

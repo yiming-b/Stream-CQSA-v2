@@ -19,11 +19,11 @@ os.environ.setdefault("CQSA_BACKWARD", "cuda")
 
 B, H, D = 1, 8, 64
 N_LIST = [1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20, 1 << 21]
-C_LIST = [7, 13, 21, 31, 57, 73, 91, 133]
+C_LIST = [3, 7, 13, 21, 31, 57, 73, 91, 133]
 N_C = 1 << 19
 
 
-KERNELS = ("cuda", "wave", "triton")     # classic engine + CUDA extension; native wave kernel; classic engine + Triton
+KERNELS = ("cuda", "triton", "wave_cuda", "wave_triton")   # classic engine (CUDA / Triton kernel); wave engine (CUDA / Triton kernel)
 
 
 def configs():
@@ -42,13 +42,14 @@ def worker(cfg, reps, warmup):
         os.environ["CQSA_FORWARD"] = "triton"          # read by the engine at import / call time
     from stream_cqsa.stable_stream import stream_cqsa_forward
     from stream_cqsa.autoconfig import QUORUM_SETS
-    if kern == "wave":
+    if kern.startswith("wave"):
         from stream_cqsa.native_wave import wave_forward
     dev = torch.device("cuda")
     g = torch.Generator(device="cuda").manual_seed(0)
     q, k, v = (torch.randn(B, H, cfg["N"], D, generator=g, device=dev, dtype=torch.float16) for _ in range(3))
-    if kern == "wave":
-        kw = dict(itr=cfg["itr"], causal=True, c=cfg["c"], interest_set=QUORUM_SETS[cfg["c"]], accumulate_on_gpu=(cfg["acc"] == "gpu"))
+    if kern.startswith("wave"):
+        kw = dict(itr=cfg["itr"], causal=True, c=cfg["c"], interest_set=QUORUM_SETS[cfg["c"]], accumulate_on_gpu=(cfg["acc"] == "gpu"),
+                  kernel=kern.split("_")[1])
         run_fwd = lambda: wave_forward(q, k, v, **kw)
     else:
         kw = dict(itr=cfg["itr"], causal=True, c=cfg["c"], interest_set=QUORUM_SETS[cfg["c"]], allow_escalation=False,
@@ -101,8 +102,9 @@ def fit(out_dir):
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
     rows = [json.loads(l) for l in open(os.path.join(out_dir, "results.jsonl")) if "times_s" in l]
     for r in rows: r.setdefault("kernel", "cuda")
-    KL = {"cuda": "classic engine, CUDA kernel", "wave": "native wave kernel", "triton": "classic engine, Triton kernel"}
-    CO = {"cuda": "C0", "wave": "C1", "triton": "C2"}
+    KL = {"cuda": "classic engine, CUDA kernel", "triton": "classic engine, Triton kernel",
+          "wave_cuda": "wave engine, CUDA kernel", "wave_triton": "wave engine, Triton kernel"}
+    CO = {"cuda": "C0", "triton": "C2", "wave_cuda": "C1", "wave_triton": "C3"}
     r2 = lambda y, yh: 1 - np.sum((y - yh) ** 2) / np.sum((y - y.mean()) ** 2)
     fits = {}
     sweeps = ["N_itr1_gpu", "N_itr1_cpu", "N_itr2_gpu", "N_itr2_cpu"]
@@ -136,7 +138,7 @@ def fit(out_dir):
             axes[1, j].plot(x, m, "s", color=CO[kern]); axes[1, j].plot(xx, np.polyval(pm, xx), "-", color=CO[kern], label=f"{KL[kern]}: linear, R2={r2m:.4f}")
         for ax, yl in ((axes[0, j], "forward time (s)"), (axes[1, j], "peak device memory (GiB)")):
             ax.set_xlabel("N (M tokens)"); ax.set_ylabel(yl); ax.legend(fontsize=7); ax.grid(alpha=0.3)
-    fig.suptitle("Stream-CQSA forward, A100-80GB, fp16 causal, B=1 H=8 D=64; classic engine (CUDA / Triton kernel, 2 in flight) and native wave kernel; mean +- std of 5 runs")
+    fig.suptitle("Stream-CQSA forward, A100-80GB, fp16 causal, B=1 H=8 D=64; classic engine (CUDA / Triton kernel, 2 in flight) and wave engine (CUDA / Triton kernel); mean +- std of 5 runs")
     fig.tight_layout(); fig.savefig(os.path.join(out_dir, "profile_sweep.png"), dpi=110)
     json.dump(fits, open(os.path.join(out_dir, "fits.json"), "w"), indent=1)
     for key, f_ in fits.items():
