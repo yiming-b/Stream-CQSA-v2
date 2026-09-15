@@ -29,12 +29,46 @@ This notebook exercises every feature of the v2 package on a single GPU. A **mem
 (`torch.cuda.set_per_process_memory_fraction`) plays the role of a smaller device so the
 recovery paths trigger at sizes that run in seconds.
 
-Sections: 1 setup · 2 the OOM boundary · 3 the engine's knobs (`itr`, `acc`, host residency,
+Sections: 0 install and call · 1 setup · 2 the OOM boundary · 3 the engine's knobs (`itr`, `acc`, host residency,
 concurrency, quorum sets) · 4 autograd with independent forward/backward depths ·
 5 automatic configuration from a hardware description · 6 the developer kit (exactness +
 performance of any inner kernel) · 7 adapters: automatic conversion of FlexAttention kernels ·
 8 the classic CUDA kernel vs FlashAttention-2 · 9 the two engines on the two
 kernels (classic / wave × CUDA / Triton, and how `attention()` chooses) · 10 multi-device.
+""")
+
+md("""
+## 0. Install and call
+
+```bash
+pip install stream-cqsa            # Triton kernels: any recent NVIDIA GPU, no compiler, no torch/CUDA matching
+stream-cqsa-doctor                 # what loaded, and how far this machine can go
+```
+
+Optional, for the fastest kernels: the two prebuilt CUDA wheels for your python / torch / CUDA / GPU from the
+[release page](https://github.com/yiming-b/Stream-CQSA-v2/releases) (`stream_cqsa` with the classic CUDA
+kernel, `stream_cqsa_native` with the wave kernel). The package uses whatever is installed.
+
+Then it is one call with the signature of `torch.nn.functional.scaled_dot_product_attention`: when the
+call fits, it *is* the normal kernel; when it does not, it is decomposed exactly, on the fastest
+configuration the planner finds for this machine, and recomposed. Nothing to configure.
+""")
+code("""
+import torch, stream_cqsa
+print("stream_cqsa", stream_cqsa.__version__, "| kernels:", stream_cqsa.kernels_available())
+q, k, v = (torch.randn(1, 8, 262_144, 64, device="cuda", dtype=torch.float16) for _ in range(3))
+out = stream_cqsa.attention(q, k, v, is_causal=True)                 # drop-in for F.scaled_dot_product_attention
+ref = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
+print(tuple(out.shape), out.dtype, "| max |out - SDPA| =", (out.float() - ref.float()).abs().max().item())
+""")
+code("""
+# The same call when the device is too small: describe the budget (or let it be detected), and watch it plan.
+out_small, plan = stream_cqsa.attention(q, k, v, is_causal=True, hardware={"cuda:0": "1GiB", "host": "64GiB"}, verbose=True, return_plan=True)
+print("plan:", plan.name(), "| max |out - SDPA| =", (out_small.float() - ref.float()).abs().max().item())
+# Two more one-liners: route an existing model's attention through it, and ask before running a huge one.
+stream_cqsa.patch_sdpa(); stream_cqsa.unpatch_sdpa()                 # F.scaled_dot_product_attention -> stream_cqsa.attention
+_ = stream_cqsa.estimate(N=16_777_216, B=1, H=8, D=64, dtype=torch.float16, causal=True)   # prints the plan table
+del q, k, v, out, ref, out_small
 """)
 
 md("## 1. Setup")
