@@ -82,7 +82,7 @@ def _is_oom(exc: BaseException) -> bool:
 def attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, attn_mask=None, dropout_p: float = 0.0,
               is_causal: bool = False, scale: Optional[float] = None, enable_gqa: bool = False, *,
               verbose: Optional[bool] = None, hardware=None, kernel: str = "auto", plan_only: bool = False,
-              return_plan: bool = False, **overrides) -> torch.Tensor:
+              return_plan: bool = False, return_info: bool = False, **overrides) -> torch.Tensor:
     """
     Exact attention that always fits. Drop-in for ``F.scaled_dot_product_attention``
     (same positional signature; masks, dropout and GQA are rejected with a message).
@@ -98,13 +98,18 @@ def attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, attn_mask=None,
     _INSIDE[0] += 1
     try:
         return _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, verbose=verbose, hardware=hardware,
-                          kernel=kernel, plan_only=plan_only, return_plan=return_plan, **overrides)
+                          kernel=kernel, plan_only=plan_only, return_plan=return_plan, return_info=return_info, **overrides)
     finally:
         _INSIDE[0] -= 1
 
 
 def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, verbose, hardware, kernel, plan_only,
-               return_plan, **overrides):
+               return_plan, return_info=False, **overrides):
+    """``return_info=True`` appends the engine's info dict (engine, kernel, itr, subproblem count,
+    OOM retries, ...) to the return value: (out[, plan], info)."""
+    def _ret(out, p, info):
+        r = (out, p) if return_plan else out
+        return ((r + (info,)) if return_plan else (out, info)) if return_info else r
     from .autoconfig import plan as _plan, hardware_from_dict, detect_hardware
     _check_inputs(q, k, v, attn_mask, dropout_p, enable_gqa)
     B, H, N, D = q.shape
@@ -128,7 +133,7 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
         try:
             out = _TRUE_SDPA(qd, kd, vd, is_causal=bool(is_causal), scale=scale)
             out = out if on_cuda else out.to(q.device)
-            return (out, p) if return_plan else out
+            return _ret(out, p, {"engine": "monolithic", "kernel": "sdpa", "itr": 0, "n_subproblems": 1})
         except Exception as exc:                                     # noqa: BLE001
             if not _is_oom(exc):
                 raise
@@ -182,10 +187,12 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
         try:
             if direction == "bwd":
                 out = wave_attention(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, **wkw)
+                info = {"engine": "wave", "kernel": wkern, **wkw}
             else:
                 acc_gpu = not (kw.get("low_memory") or kw.get("accumulate_on_gpu") is False)
-                out, _ = wave_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose,
-                                      accumulate_on_gpu=acc_gpu, kernel=wkern, **wkw)
+                out, info = wave_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose,
+                                         accumulate_on_gpu=acc_gpu, kernel=wkern, **wkw)
+                info = {k_: v_ for k_, v_ in info.items() if k_ != "lse"}; info["engine"] = "wave"
         except Exception as exc:                                     # noqa: BLE001
             if not _is_oom(exc) or kernel in WAVE_KERNELS:
                 raise
@@ -206,12 +213,17 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
                                    stream_from_host=bool(kw.get("stream_from_host", host)),
                                    accumulate_on_gpu=bool(kw.get("accumulate_on_gpu", True)),
                                    max_parallel=kw.get("max_parallel"))
+            info = {"engine": "classic", "kernel": "triton" if os.environ.get("CQSA_FORWARD", "").lower() == "triton" else "cuda",
+                    "itr": kw.get("itr", "auto"), "c": kw.get("c", 7), "stream_from_host": bool(kw.get("stream_from_host", host)),
+                    "accumulate_on_gpu": bool(kw.get("accumulate_on_gpu", True))}
         else:
             kw.setdefault("stream_from_host", host)
             # leave the fp32 result where the accumulator is; _deliver casts and moves it
-            out, _ = stream_cqsa_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, out_device="acc", **kw)
+            out, info = stream_cqsa_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, out_device="acc", **kw)
+            info = {k_: v_ for k_, v_ in info.items() if k_ not in ("lse",) and not hasattr(v_, "device")}
+            info["engine"] = "classic"; info["kernel"] = "triton" if os.environ.get("CQSA_FORWARD", "").lower() == "triton" else "cuda"
     out = _deliver(out, out_device, q.dtype, vb)
-    return (out, p) if return_plan else out
+    return _ret(out, p, info)
 
 
 def _deliver(out: torch.Tensor, device, dtype, vb: bool) -> torch.Tensor:
