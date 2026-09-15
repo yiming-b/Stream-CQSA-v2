@@ -98,6 +98,14 @@ def run(out_dir, reps, warmup, only=None, kernels=None):
             print(f"{cfg}: ERROR rc={r.get('rc')}", flush=True)
 
 
+def largest_wave_tokens(r) -> int:
+    """Packed tokens of the largest wave the planner forms for this row (default wave budget)."""
+    from stream_cqsa.native_wave import wave_tasks, plan_waves, DEFAULT_MAX_WAVE_TOKENS
+    from stream_cqsa.autoconfig import QUORUM_SETS
+    tasks = wave_tasks(r["N"], r["itr"], r["c"], QUORUM_SETS[r["c"]], H=H, D=D, itemsize=2)
+    return max(sum(int(t.local_size) for t in w) for w in plan_waves(tasks, DEFAULT_MAX_WAVE_TOKENS))
+
+
 def fit(out_dir):
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
     rows = [json.loads(l) for l in open(os.path.join(out_dir, "results.jsonl")) if "times_s" in l]
@@ -128,14 +136,25 @@ def fit(out_dir):
             if len(rs) < 3: continue
             N = np.array([r["N"] for r in rs], float); t = np.array([np.mean(r["times_s"]) for r in rs]); te = np.array([np.std(r["times_s"]) for r in rs])
             m = np.array([np.mean(r["peak_gib"]) for r in rs]); x = N / 1e6
-            pt = np.polyfit(x, t, 2); pm = np.polyfit(x, m, 1)
-            r2t, r2m = r2(t, np.polyval(pt, x)), r2(m, np.polyval(pm, x))
-            fits[f"{sw}/{kern}"] = dict(N=N.tolist(), time_s=t.tolist(), time_std=te.tolist(), peak_gib=m.tolist(),
-                                        time_fit="t[s] = %.4g*(N/1e6)^2 + %.4g*(N/1e6) + %.4g" % tuple(pt), time_r2=r2t,
-                                        mem_fit="peak[GiB] = %.4g*(N/1e6) + %.4g" % tuple(pm), mem_r2=r2m)
+            pt = np.polyfit(x, t, 2)
+            r2t = r2(t, np.polyval(pt, x))
             xx = np.linspace(x.min(), x.max(), 200)
             axes[0, j].errorbar(x, t, yerr=te, fmt="o", color=CO[kern]); axes[0, j].plot(xx, np.polyval(pt, xx), "-", color=CO[kern], label=f"{KL[kern]}: quadratic, R2={r2t:.4f}")
-            axes[1, j].plot(x, m, "s", color=CO[kern]); axes[1, j].plot(xx, np.polyval(pm, xx), "-", color=CO[kern], label=f"{KL[kern]}: linear, R2={r2m:.4f}")
+            axes[1, j].plot(x, m, "s", color=CO[kern])
+            entry = dict(N=N.tolist(), time_s=t.tolist(), time_std=te.tolist(), peak_gib=m.tolist(),
+                         time_fit="t[s] = %.4g*(N/1e6)^2 + %.4g*(N/1e6) + %.4g" % tuple(pt), time_r2=r2t)
+            if kern.startswith("wave"):
+                # the wave engines hold a whole wave of packed partial outputs: peak = a*N + b*W + c with W
+                # the packed tokens of the largest wave the planner forms (capped by the wave budget)
+                W = np.array([largest_wave_tokens(r) for r in rs]) / 1e6
+                A = np.c_[x, W, np.ones_like(x)]; pw = np.linalg.lstsq(A, m, rcond=None)[0]; r2m = r2(m, A @ pw)
+                entry.update(largest_wave_Mtok=W.tolist(), mem_fit="peak[GiB] = %.4g*(N/1e6) + %.4g*(W_wave/1e6) + %.4g" % tuple(pw), mem_r2=r2m)
+                axes[1, j].plot(x, A @ pw, "--", color=CO[kern], label=f"{KL[kern]}: a*N + b*W_wave, R2={r2m:.4f}")
+            else:
+                pm = np.polyfit(x, m, 1); r2m = r2(m, np.polyval(pm, x))
+                entry.update(mem_fit="peak[GiB] = %.4g*(N/1e6) + %.4g" % tuple(pm), mem_r2=r2m)
+                axes[1, j].plot(xx, np.polyval(pm, xx), "-", color=CO[kern], label=f"{KL[kern]}: linear, R2={r2m:.4f}")
+            fits[f"{sw}/{kern}"] = entry
         for ax, yl in ((axes[0, j], "forward time (s)"), (axes[1, j], "peak device memory (GiB)")):
             ax.set_xlabel("N (M tokens)"); ax.set_ylabel(yl); ax.legend(fontsize=7); ax.grid(alpha=0.3)
     fig.suptitle("Stream-CQSA forward, A100-80GB, fp16 causal, B=1 H=8 D=64; classic engine (CUDA / Triton kernel, 2 in flight) and wave engine (CUDA / Triton kernel); mean +- std of 5 runs")
