@@ -167,30 +167,52 @@ accurate than the monolithic fp16 call (2.8e-4 vs 5.5e-4 at 1M). Kernel alone on
 the real subproblem: 30.2 → 24.4 ms (FA-2: 17.5 ms). Details and every other
 number: `docs/LOG.md`, `results/`.
 
-### One parameter at a time (`results/profile_sweep/`, forward, device-resident Q/K/V)
+### One parameter at a time (`results/profile_sweep/`, forward, device-resident Q/K/V, A100-SXM4-80GB)
 
-Vary c at N=512K, itr=1, acc=GPU: time rises 16% from c=7 to c=133 (about 2.6 ms per extra
-subproblem); peak memory falls with c to a floor of 3.60 GiB (Q/K/V + fp32 output) from c=31.
+Four kernel paths measured on one GPU (della-l09g5) in one session, 5 runs per point after a
+warm-up, each configuration in its own process: the classic engine (one subproblem per launch, two
+in flight) on the CUDA and on the Triton kernel, and the wave engine (several subproblems per launch)
+on the CUDA and on the Triton kernel.
 
-| c | 7 | 13 | 21 | 31 | 57 | 73 | 91 | 133 |
-|---|---|---|---|---|---|---|---|---|
-| time (s) | 1.99 | 2.01 | 2.04 | 2.08 | 2.15 | 2.19 | 2.24 | 2.32 |
-| peak (GiB) | 4.76 | 4.14 | 3.78 | 3.60 | 3.60 | 3.60 | 3.60 | 3.60 |
+Vary c at N=512K, itr=1, acc=GPU (time in s / peak device memory in GiB):
 
-Vary N at c=7 (x = N / 1e6; fits over 64K..2M, 5 runs per point): the quadratic coefficient is
-the kernel and is the same in every series; the depth and the accumulator only move the
-linear and constant overheads. Memory is linear in N.
+| c | 3 | 7 | 13 | 21 | 31 | 57 | 73 | 91 | 133 |
+|---|---|---|---|---|---|---|---|---|---|
+| classic, CUDA | 1.98 / 5.97 | 1.99 / 4.74 | 2.01 / 4.12 | 2.04 / 3.76 | 2.08 / 3.58 | 2.16 / 3.58 | 2.19 / 3.58 | 2.24 / 3.58 | 2.32 / 3.58 |
+| classic, Triton | 2.23 / 5.97 | 2.24 / 4.74 | 2.26 / 4.12 | 2.29 / 3.76 | 2.35 / 3.58 | 2.44 / 3.58 | 2.50 / 3.58 | 2.59 / 3.58 | 2.79 / 3.58 |
+| wave, CUDA | 2.01 / 5.61 | 2.02 / 6.64 | 2.00 / 7.68 | 2.02 / 7.48 | 2.04 / 7.56 | 2.08 / 7.61 | 2.09 / 7.64 | 2.08 / 7.64 | 2.13 / 7.67 |
+| wave, Triton | 2.32 / 10.8 | 2.34 / 13.9 | 2.37 / 17.0 | 2.42 / 17.6 | 2.45 / 18.8 | 2.50 / 18.9 | 2.55 / 19.0 | 2.57 / 20.0 | 2.63 / 20.1 |
 
-| series | time (s) | R² | peak (GiB) | R² | at 2M |
-|---|---|---|---|---|---|
-| itr=1, acc=GPU | 6.89x² + 0.19x + 0.00 | 1.0000 | 9.07x | 1.0000 | 30.7 s, 19.0 GiB |
-| itr=1, acc=CPU | 6.99x² + 1.09x + 0.20 | 1.0000 | 5.33x | 1.0000 | 33.2 s, 11.2 GiB |
-| itr=2, acc=GPU | 7.05x² + 0.50x + 0.05 | 1.0000 | 6.86x | 1.0000 | 32.1 s, 14.4 GiB |
-| itr=2, acc=CPU | 6.34x² + 2.52x + 1.04 | 0.9980 | 4.77x | 1.0000 | 34.3 s, 10.0 GiB |
+The classic engine pays per launch (17% from c=3 to c=133 on CUDA, 25% on Triton); the wave engine
+is nearly flat (6% and 13%) and wins from c=21 up on CUDA and from c=91 on Triton. The classic
+engine's memory falls with c to the floor of Q/K/V plus the fp32 output; the wave engine packs a
+whole wave (up to 2M tokens) of partial outputs, so its peak is higher and set by the wave budget.
+
+Vary N at c=7 (x = N / 1e6; quadratic fit of the time over 64K..2M, R² >= 0.998 throughout):
+
+| series | classic, CUDA | classic, Triton | wave, CUDA | wave, Triton |
+|---|---|---|---|---|
+| itr=1, acc=GPU | 7.22x² − 0.15x + 0.06 | 8.05x² − 0.04x + 0.03 | 7.43x² − 0.13x + 0.03 | 8.40x² − 0.09x + 0.05 |
+| itr=1, acc=CPU | 7.16x² + 1.02x + 0.25 | 8.13x² + 0.48x + 0.20 | 7.68x² + 0.86x + 0.00 | 8.65x² + 1.41x + 0.02 |
+| itr=2, acc=GPU | 7.21x² + 0.40x + 0.06 | 7.89x² + 0.31x + 0.07 | 7.36x² + 0.03x + 0.05 | 8.26x² + 0.43x + 0.02 |
+| itr=2, acc=CPU | 6.12x² + 3.09x + 1.10 | 7.58x² + 0.76x + 1.11 | 7.95x² + 1.92x − 0.11 | 8.91x² + 2.78x − 0.08 |
+
+The quadratic coefficient is the kernel: Triton is 11-16% behind CUDA at this head dim (the known
+ratio of Triton's FlashAttention-2 forward), and the wave engine is within 3-4% of the classic
+engine on the same kernel. The linear and constant terms are the engine overheads: acc=CPU adds
+about 1 s per M tokens; itr=2 adds the launches, which the wave engine removes (its itr=2, acc=GPU
+linear term is 0.03 against 0.40). At 2M tokens with acc=CPU the classic engine is 5-7% faster
+than the wave engine because its per-subproblem host transfers overlap with compute while the wave
+engine merges each wave on the host synchronously; this is why `attention()` keeps the classic
+engine for host-accumulator forwards. Peak device memory is linear in N for the classic engine
+(9.0 GiB per M tokens at itr=1 acc=GPU, 5.3 at acc=CPU, 6.8 / 4.8 at itr=2); for the wave engine
+it is governed by the wave budget rather than by N (fits in `fits.json`).
 
 ![profile sweep](results/profile_sweep/profile_sweep.png)
 
-Reproduce: `sbatch slurm/profile_sweep.slurm` (`benchmarks/profile_sweep.py run` then `fit`).
+Reproduce: `sbatch slurm/profile_sweep_<kernel>.slurm` for cuda / triton / wave_cuda / wave_triton
+(one gpu-test job each, `--constraint="sxm&gpu80"` so that all four land on the same GPU model),
+then `python benchmarks/profile_sweep.py fit --out results/profile_sweep`.
 
 ## License
 
