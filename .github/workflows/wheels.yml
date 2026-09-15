@@ -128,7 +128,9 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.attach_to || github.ref_name }}
-          files: dist/*
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
 
   # Optional: PyPI. Register the project on pypi.org with a "trusted publisher" for this
   # repository and workflow (no token needed), then set the repository variable
