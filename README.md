@@ -38,31 +38,37 @@ kept query–key pair is counted exactly once, so the result is exact.
 
 ## Install
 
+Two implementations of the kernels ship, and where you get them differs:
+
+| | kernels | where | install |
+|---|---|---|---|
+| **Triton build** | CQS forward and backward in Triton, compiled on your machine for your GPU; no compiler, no torch/CUDA matching | PyPI | `pip install stream-cqsa` |
+| **CUDA build** | the classic CUDA extensions (FlashAttention-2-derived CQS forward, CUDA backward) plus the native wave kernel; the fastest forward | GitHub release page (prebuilt wheels per python / torch / CUDA / GPU) or a source build | see below |
+
+The package picks at run time: CUDA extensions and the wave kernel when they are importable,
+Triton otherwise. `stream-cqsa-doctor` shows which kernels loaded. The Triton backward is the
+default in both builds (it measured faster than the CUDA backward at every length);
+`CQSA_BACKWARD=cuda` selects the CUDA backward.
+
+### Triton build (PyPI)
+
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu126     # match your CUDA
-CQSA_SKIP_EXT=1 pip install --no-build-isolation git+https://github.com/yiming-b/Stream-CQSA-v2.git   # no compilation
-python -m stream_cqsa.doctor                                            # what this machine can run, and how far
+pip install stream-cqsa                                                  # Triton kernels, no compilation
+python -m stream_cqsa.doctor                                             # what this machine can run, and how far
 ```
 
-The package runs with **no compilation**: the CQS forward and backward kernels are also
-implemented in Triton, and the engine uses them whenever no extension is present
-(`pip install triton` if your torch did not bring it). `pip install flash-attn` is optional
-and gives the monolithic fast path its own kernel.
+`pip install triton` if your torch did not bring it. `pip install flash-attn` is optional and
+gives the monolithic fast path its own kernel. The same build installs from a checkout without
+compiling: `CQSA_SKIP_EXT=1 pip install --no-build-isolation git+https://github.com/yiming-b/Stream-CQSA-v2.git`.
 
-Prebuilt wheels are on the [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.1.2):
+### CUDA build (GitHub release page)
 
-```bash
-# pure Python (Triton kernels, no compiler), any torch >= 2.5 with CUDA
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.2/stream_cqsa-2.1.2-py3-none-any.whl
-# CUDA extensions + native wave kernel: torch 2.10 / CUDA 13 / python 3.11, A100 (sm80) and H100 (sm90)
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.2/stream_cqsa-2.1.2-1cu130torch210sm8090-cp311-cp311-linux_x86_64.whl
-```
-
-The workflow (`.github/workflows/wheels.yml`) attaches two wheels per python 3.10/3.11/3.12 x
-torch 2.5.1/2.6.0 x CUDA 12.4 x GPU architecture (sm80 = A100, sm90 = H100) cell: `stream_cqsa`
-with the classic CUDA extensions and the companion `stream_cqsa_native` with the wave kernel.
-Install both; the package uses the wave kernel whenever it is present (`stream-cqsa-doctor` shows
-which kernels loaded):
+The [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.1.2) carries, for
+every python 3.10/3.11/3.12 x torch 2.5.1/2.6.0 x CUDA 12.4 x GPU architecture (sm80 = A100 and
+other 8.x cards, sm90 = H100) cell, two wheels: `stream_cqsa` with the classic CUDA extensions and
+the companion `stream_cqsa_native` with the wave kernel. Install both; they replace the PyPI
+package with the same version plus the extensions:
 
 ```bash
 V=v2.1.2; T=1cu124torch2.6sm80; PY=cp311     # pick your torch / CUDA / GPU / python
@@ -70,12 +76,16 @@ pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stre
 pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa_native-2.1.2-$T-$PY-$PY-linux_x86_64.whl
 ```
 
-Publishing to PyPI (`pip install stream-cqsa`) is the `pypi`
-job in the workflow, enabled by the repository variable `PYPI_PUBLISH=true` once the project
-is registered on PyPI with trusted publishing.
+Also on the release page: one wheel with both extensions for torch 2.10 / CUDA 13 / python 3.11
+(`stream_cqsa-2.1.2-1cu130torch210sm8090-...whl`, sm80 + sm90), and the pure wheel and sdist that
+PyPI serves. The CUDA wheels are too large for PyPI (100 MB per file), which is why they live on
+GitHub, as PyTorch's own CUDA wheels do. They are built by `.github/workflows/wheels.yml` on every
+tag; publishing to PyPI is the `pypi` job, enabled by the repository variable `PYPI_PUBLISH=true`
+with trusted publishing.
 
-With the CUDA extension, from a checkout: `pip install -e . --no-build-isolation`
-(40-75 min of nvcc; `CQSA_KERNEL_SET=common` covers fp16/bf16 and head dims 64/128).
+From source, for any GPU: `pip install -e . --no-build-isolation` in a checkout compiles the
+classic extensions for the card present (40-75 min of nvcc; `CQSA_KERNEL_SET=common` covers
+fp16/bf16 and head dims 64/128); `CQSA_BUILD_NATIVE=1` adds the wave kernel.
 
 ## Use
 
