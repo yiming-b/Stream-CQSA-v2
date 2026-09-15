@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+* Routing: with `kernel="auto"` the wave engine is taken only for >= 20 subproblems (c >= 21 at
+  itr=1, or itr=2; `CQSA_WAVE_MIN_SUBPROBLEMS`), where it measured faster than the classic engine;
+  below that the classic engine is faster and uses less device memory (profile sweep, v2.2.0).
+
 ## v2.2.0 (2026-09-15)
 
 * Wave engine on both kernels: `wave_forward(..., kernel="cuda"|"triton"|"auto")`. The Triton

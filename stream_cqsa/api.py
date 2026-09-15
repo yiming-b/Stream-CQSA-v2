@@ -246,6 +246,7 @@ def _deliver(out: torch.Tensor, device, dtype, vb: bool) -> torch.Tensor:
 
 
 WAVE_KERNELS = {"wave": "auto", "wave-cuda": "cuda", "wave-triton": "triton"}
+WAVE_MIN_SUBPROBLEMS = int(os.environ.get("CQSA_WAVE_MIN_SUBPROBLEMS", "20"))
 
 
 def _pick_wave(kernel: str, kw: dict, is_causal: bool, q: torch.Tensor, direction: str) -> bool:
@@ -270,6 +271,16 @@ def _pick_wave(kernel: str, kw: dict, is_causal: bool, q: torch.Tensor, directio
     # host merge at 1M-2M tokens (profile sweep, v2.2.0). kernel="wave*" still selects the wave
     # engine's host accumulator explicitly. The wave backward keeps fp32 gradients on the device.
     if kw.get("low_memory") or kw.get("accumulate_on_gpu") is False:
+        return False
+    # The wave engine pays off when launches matter: on an A100-SXM4-80GB it is 3-4% slower than the
+    # classic engine at c=7 itr=1 but ahead from ~20 subproblems (c >= 21 at itr=1, or itr=2), and
+    # it holds a whole wave of partial outputs on the device. So "auto" takes it only for many
+    # subproblems (CQSA_WAVE_MIN_SUBPROBLEMS, default 20).
+    try:
+        n_sub = int(kw.get("c", 7)) ** int(kw.get("itr", 1))
+    except (TypeError, ValueError):
+        n_sub = 0
+    if n_sub < WAVE_MIN_SUBPROBLEMS:
         return False
     from .native_wave import native_supports
     return native_supports(q.dtype, int(q.shape[-1]))      # depends on the kernel set the extension was built with
