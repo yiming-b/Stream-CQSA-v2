@@ -49,13 +49,13 @@ implemented in Triton, and the engine uses them whenever no extension is present
 (`pip install triton` if your torch did not bring it). `pip install flash-attn` is optional
 and gives the monolithic fast path its own kernel.
 
-Prebuilt wheels are on the [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.1.1):
+Prebuilt wheels are on the [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.1.2):
 
 ```bash
 # pure Python (Triton kernels, no compiler), any torch >= 2.5 with CUDA
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.1/stream_cqsa-2.1.1-py3-none-any.whl
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.2/stream_cqsa-2.1.2-py3-none-any.whl
 # CUDA extensions + native wave kernel: torch 2.10 / CUDA 13 / python 3.11, A100 (sm80) and H100 (sm90)
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.1/stream_cqsa-2.1.1-1cu130torch210sm8090-cp311-cp311-linux_x86_64.whl
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/v2.1.2/stream_cqsa-2.1.2-1cu130torch210sm8090-cp311-cp311-linux_x86_64.whl
 ```
 
 The workflow (`.github/workflows/wheels.yml`) attaches two wheels per python 3.10/3.11/3.12 x
@@ -65,9 +65,9 @@ Install both; the package uses the wave kernel whenever it is present (`stream-c
 which kernels loaded):
 
 ```bash
-V=v2.1.1; T=1cu124torch2.6sm80; PY=cp311     # pick your torch / CUDA / GPU / python
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa-2.1.1-$T-$PY-$PY-linux_x86_64.whl
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa_native-2.1.1-$T-$PY-$PY-linux_x86_64.whl
+V=v2.1.2; T=1cu124torch2.6sm80; PY=cp311     # pick your torch / CUDA / GPU / python
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa-2.1.2-$T-$PY-$PY-linux_x86_64.whl
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa_native-2.1.2-$T-$PY-$PY-linux_x86_64.whl
 ```
 
 Publishing to PyPI (`pip install stream-cqsa`) is the `pypi`

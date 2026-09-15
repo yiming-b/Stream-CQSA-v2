@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.1.2 (2026-09-15)
+
+* Triton backward by default (`CQSA_BACKWARD=cuda` restores the CUDA backward): faster at every
+  length measured (8.4M fwd+bwd 2946 s vs 3190 s) and needs no compiled extension.
+* Native wave kernel on the release page for every cell: companion wheel `stream_cqsa_native`
+  (python 3.10/3.11/3.12 x torch 2.5/2.6 x CUDA 12.4 x sm80/sm90) next to the classic wheel;
+  workflow dispatch `native-all` and `attach_to=<tag>`; release job creates the release itself.
+* Pure wheel and sdist published to PyPI on tag pushes (`pip install stream-cqsa`), when the
+  repository variable `PYPI_PUBLISH` is set.
+* One-parameter profiles (c in 7..133; N x {itr, acc}) with quadratic / linear fits:
+  `benchmarks/profile_sweep.py`, `results/profile_sweep/`, README section. Quorum sets for
+  c=91 and c=133 (Singer, q=9 and q=11) added to `QUORUM_SETS`.
+* Distributed backward reduces the gradient chunks in place (halves the per-rank host footprint
+  of the reduction).
+* Slurm headers sized from the host tensors actually held; the paper harness records the host RSS
+  peak (`mem_host_rss_peak_mib`).
+
 ## v2.1.1 (2026-09-14)
 
 * Native wave kernel built for fp16 and bf16 at head dim 64 (head dim 128 forwards run on the

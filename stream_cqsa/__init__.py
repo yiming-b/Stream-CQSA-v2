@@ -1,4 +1,4 @@
-__version__ = "2.1.1"
+__version__ = "2.1.2"
 
 from .stable_stream import (
     stream_cqsa_forward,
