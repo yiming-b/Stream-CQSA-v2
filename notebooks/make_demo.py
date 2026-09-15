@@ -33,7 +33,8 @@ Sections: 1 setup · 2 the OOM boundary · 3 the engine's knobs (`itr`, `acc`, h
 concurrency, quorum sets) · 4 autograd with independent forward/backward depths ·
 5 automatic configuration from a hardware description · 6 the developer kit (exactness +
 performance of any inner kernel) · 7 adapters: automatic conversion of FlexAttention kernels ·
-8 the native kernels (v11 causal, v9 non-causal) vs FlashAttention-2 · 9 multi-device.
+8 the native kernels (v11 causal, v9 non-causal) vs FlashAttention-2 · 9 the two engines on the two
+kernels (classic / wave × CUDA / Triton, and how `attention()` chooses) · 10 multi-device.
 """)
 
 md("## 1. Setup")
@@ -167,7 +168,8 @@ o, info = stream_cqsa_forward(q.detach(), k.detach(), v.detach(), itr=1, causal=
 binfo = {}
 dq, dk, dv = stream_cqsa_backward(q.detach(), k.detach(), v.detach(), torch.ones_like(q).detach(), o.to(q.dtype), info["lse"], causal=True, bwd_info=binfo)
 print("explicit backward itr='auto':", binfo.get("plan_reason"))
-del out, o, dq, dk, dv; q.grad = k.grad = v.grad = None
+del out, o, dq, dk, dv, info, binfo; q.grad = k.grad = v.grad = None   # drop device tensors (lse) before the next cap: a
+gc.collect(); torch.cuda.empty_cache()                                    # live tensor pins its whole cached segment
 cap(40.0)
 """)
 
@@ -193,7 +195,10 @@ for spec in [{"cuda:0": "40GiB", "host": "256GiB"},
 code("""
 # Calibrate the cost model on this GPU (~1 min), then let auto_attention plan and run under a cap.
 cm = calibrate(hw, N=65536)
-cap(2.0)
+# The planner plans for the 2 GiB device described below. The process cap is 3 GiB because a 1 GiB
+# allocator segment cached earlier in this notebook stays pinned by PyTorch's cuBLAS workspace (8 MiB);
+# a real 2 GiB device would never have created that segment.
+cap(3.0)
 q, k, v = make_qkv(524_288)
 out, p = auto_attention(q, k, v, causal=True, hardware=hardware_from_dict({"cuda:0": "2GiB", "host": "256GiB"}), model=cm, verbose=True, allow_escalation=False)
 torch.cuda.synchronize()
@@ -282,7 +287,77 @@ del qq, kk, vv
 """)
 
 md("""
-## 9. Multi-device
+## 9. Two engines, two kernels: classic / wave × CUDA / Triton
+
+Since v2.2 every forward can run on either **engine** and either **kernel**:
+
+* the **classic engine** runs one subproblem per launch (two in flight); the **wave engine** packs several
+  subproblems into one batched launch (per-subproblem tables, one deterministic merge per wave), so its
+  cost is flat in the subproblem count;
+* the **CUDA kernel** (the compiled extensions; the wave kernel is `cqsa_native`) or the **Triton kernel**
+  (no build; 11-16% behind CUDA at head dim 64).
+
+`attention(..., kernel=)` picks: `"cuda"` / `"triton"` = classic engine, `"wave-cuda"` / `"wave-triton"` = wave
+engine, `"auto"` = the classic engine unless the decomposition has >= 20 subproblems (c >= 21 at itr=1, or
+itr=2), where the wave engine measured faster; host-accumulator calls (`accumulate_on_gpu=False`, the paper's
+acc=CPU) stay on the classic engine under `auto` and are available on both engines explicitly. The full
+comparison is `results/profile_sweep/` in the README.
+""")
+code("""
+from stream_cqsa import attention, kernels_available
+from stream_cqsa.api import _pick_wave
+from stream_cqsa.native_wave import wave_forward
+print("kernels in this environment:", kernels_available())
+cap(40.0)
+N = 262_144
+q, k, v = make_qkv(N); rows = sample_rows(N, 128); ref = reference_rows(q, k, v, rows, causal=True, scale=D**-0.5)
+qd, kd, vd = (t.to(dev) for t in (q, k, v))
+print(f"{'engine / kernel / configuration':>52} {'time s':>7} {'peak GiB':>9} {'rel.err':>8}")
+for label, kernel, kw in [
+    ("classic, CUDA, c=7 itr=1",                    "cuda",        dict(itr=1)),
+    ("classic, Triton, c=7 itr=1",                  "triton",      dict(itr=1)),
+    ("wave, CUDA, c=7 itr=1",                       "wave-cuda",   dict(itr=1)),
+    ("wave, Triton, c=7 itr=1",                     "wave-triton", dict(itr=1)),
+    ("classic, CUDA, c=31 itr=1 (31 subproblems)",  "cuda",        dict(itr=1, c=31, interest_set=QUORUM_SETS[31])),
+    ("wave, CUDA, c=31 itr=1 (31 subproblems)",     "wave-cuda",   dict(itr=1, c=31, interest_set=QUORUM_SETS[31])),
+    ("wave, Triton, c=31 itr=1",                    "wave-triton", dict(itr=1, c=31, interest_set=QUORUM_SETS[31])),
+    ("classic, CUDA, c=7 itr=1, acc=CPU",           "cuda",        dict(itr=1, low_memory=True, accumulate_on_gpu=False)),
+    ("wave, CUDA, c=7 itr=1, acc=CPU",              "wave-cuda",   dict(itr=1, accumulate_on_gpu=False)),
+    ("wave, Triton, c=7 itr=1, acc=CPU",            "wave-triton", dict(itr=1, accumulate_on_gpu=False)),
+    ("auto (classic here: 7 subproblems)",          "auto",        dict(itr=1)),
+    ("auto (wave here: 49 subproblems)",            "auto",        dict(itr=2)),
+]:
+    attention(qd, kd, vd, is_causal=True, kernel=kernel, **kw)                     # warm-up (Triton compiles on first use)
+    gc.collect(); torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats(); torch.cuda.synchronize()
+    t0 = time.perf_counter(); out = attention(qd, kd, vd, is_causal=True, kernel=kernel, **kw); torch.cuda.synchronize()
+    err = accuracy_vs_fp64(out.to(dev), q, k, v, causal=True, scale=D**-0.5, rows=rows, ref_rows=ref)["rel_fro"]
+    print(f"{label:>52} {time.perf_counter()-t0:7.3f} {torch.cuda.max_memory_allocated()/2**30:9.2f} {err:8.1e}")
+    del out
+""")
+code("""
+# What `kernel="auto"` decides, by subproblem count (the wave engine from 20 subproblems; acc=CPU stays classic)
+for c_, itr_, acc_ in [(7, 1, True), (13, 1, True), (21, 1, True), (7, 2, True), (133, 1, True), (133, 1, False)]:
+    kw = dict(c=c_, itr=itr_) | ({} if acc_ else dict(accumulate_on_gpu=False))
+    print(f"c={c_:3d} itr={itr_} acc={'GPU' if acc_ else 'CPU'}: {c_**itr_:4d} subproblems ->", "wave engine" if _pick_wave("auto", kw, True, qd, "fwd") else "classic engine")
+""")
+code("""
+# The wave engine directly: waves are planned under a packed-token budget (default min(2M, max(512K, N)));
+# `kernel=` selects the compute kernel, `accumulate_on_gpu=False` merges each wave into host accumulators.
+for kern in ("cuda", "triton"):
+    for budget in (None, 128 * 1024):
+        out, info = wave_forward(qd, kd, vd, causal=True, itr=1, c=13, interest_set=QUORUM_SETS[13], kernel=kern, max_wave_tokens=budget)
+        print(f"wave_forward kernel={info['kernel']:6s} budget={info['max_wave_tokens']:>7d} tokens -> {info['n_waves']} wave(s) of {info['wave_sizes']} subproblems, "
+              f"rel.err {accuracy_vs_fp64(out, q, k, v, causal=True, scale=D**-0.5, rows=rows, ref_rows=ref)['rel_fro']:.1e}")
+        del out
+# The classic engine on the Triton kernel, without the API: CQSA_FORWARD=triton is read per call
+os.environ["CQSA_FORWARD"] = "triton"
+out, info = stream_cqsa_forward(qd, kd, vd, itr=1, causal=True, allow_escalation=False)
+print(f"classic engine on Triton: {info['n_subproblems']} subproblems, rel.err {accuracy_vs_fp64(out, q, k, v, causal=True, scale=D**-0.5, rows=rows, ref_rows=ref)['rel_fro']:.1e}")
+os.environ.pop("CQSA_FORWARD"); del out, qd, kd, vd
+""")
+
+md("""
+## 10. Multi-device
 
 `stream_cqsa.distributed.dist_stream_cqsa_forward / _backward` shard the `c**itr` subproblems round-robin
 over the ranks of a `torch.distributed` group (NCCL), run the unmodified engine per rank and recompose with

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+* Demo notebook: section 9 runs both engines on both kernels (classic / wave x CUDA / Triton), shows
+  what `kernel="auto"` decides by subproblem count, and the wave budget; re-executed end to end.
+* Classic engine: the device chunk pool and the accumulator's staging are released, and cached blocks
+  returned to the driver, before a host-accumulated output is moved to the device (a 512K call under a
+  tight cap failed on allocator fragmentation).
+
 ## v2.2.1 (2026-09-15)
 
 * Wave engine default budget: min(2M, max(512K, N)) packed tokens per wave instead of a flat 2M

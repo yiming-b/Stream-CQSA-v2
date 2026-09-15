@@ -1800,7 +1800,9 @@ def stream_cqsa_forward(
     info["lse"] = accum.lse()
     if chunk_pool is not None:
         info.update(chunk_pool.stats())
+        chunk_pool.buf = None; chunk_pool = None          # the device chunk pool is dead once the output exists
     info["untouched_tokens"] = accum.untouched_tokens()
+    del accum                                             # device staging of the accumulator, if any
     info["wall_s"] = time.perf_counter() - t_start
     # Launch timestamps understate the run: the host returns long before the
     # device drains. Record the true span so the visualisation reports wall
@@ -1810,6 +1812,20 @@ def stream_cqsa_forward(
     info["stage_totals_ms"] = trace.stage_totals_ms() if trace.enabled else {}
     progress.close(f"{info['n_subproblems']} subproblems" + (f", {info['oom_retries']} OOM retries" if info['oom_retries'] else ""))
     if out_device == "acc":
+        return out, info
+    if not out.is_cuda:
+        # A host accumulator's output goes back to the device. Under a tight cap the move failed on
+        # fragmentation: the small lse tensor pins a large cached segment that empty_cache() cannot
+        # release. Park the lse on the host, return the cached blocks to the driver, move the
+        # output, then restore the lse (16 MiB per M tokens; negligible).
+        lse_dev = info.get("lse")
+        lse_host = None
+        if isinstance(lse_dev, torch.Tensor) and lse_dev.is_cuda:
+            lse_host = lse_dev.to("cpu"); info["lse"] = None; del lse_dev
+        torch.cuda.empty_cache()
+        out = out.to(device if out_device is None else out_device)
+        if lse_host is not None:
+            info["lse"] = lse_host.to(out.device)
         return out, info
     return out.to(device if out_device is None else out_device), info
 
