@@ -43,6 +43,7 @@ CPU_THREADS = int(os.environ.get("CQSA_CPU_THREADS", "8"))
 # tokens per launch nothing is left to gain, while the wave's fp32 partial outputs
 # (H*D*4 bytes per packed token) are its memory cost. 2M tokens = 4 GiB at H=8, D=64.
 DEFAULT_MAX_WAVE_TOKENS = int(os.environ.get("CQSA_MAX_WAVE_TOKENS", str(2 << 20)))
+MIN_WAVE_BUDGET_TOKENS = int(os.environ.get("CQSA_MIN_WAVE_TOKENS", 1 << 19))   # floor of the default wave budget
 from .reference import chunk_layout
 from .progress import Progress, verbose_enabled, describe_call, expected_seconds
 
@@ -392,6 +393,12 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
     acc_bytes = (N * H * D * 4 + 2 * N * H * 4) if acc_gpu else 0
     per_tok = fwd_bytes_per_token(H, D) + (0 if acc_gpu else 4 * H * D + 8 * H)
 
+    # Default wave budget (v2.2.1): min(DEFAULT_MAX_WAVE_TOKENS, max(MIN_WAVE_BUDGET_TOKENS, N)) packed
+    # tokens. The wave engine's device peak is a*N + b*W_wave (profile sweep); a cap of about N tokens
+    # cost <= 1.3% of time on an A100-SXM4-80GB (131K-512K, itr=1) while cutting the packed term by
+    # two thirds below the 2M saturation. Small calls still fit in one wave; max_wave_tokens overrides.
+    if max_wave_tokens is None:
+        max_wave_tokens = min(DEFAULT_MAX_WAVE_TOKENS, max(MIN_WAVE_BUDGET_TOKENS, int(N)))
     if on_device:
         max_tokens = _budget_tokens(dev, per_tok, acc_bytes + (256 << 20), memory_fraction, max_wave_tokens)
         waves = plan_waves(tasks, max_tokens, max_wave_subproblems)

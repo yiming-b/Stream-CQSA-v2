@@ -67,20 +67,20 @@ compiling: `CQSA_SKIP_EXT=1 pip install --no-build-isolation git+https://github.
 
 ### CUDA build (GitHub release page)
 
-The [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.2.0) carries, for
+The [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.2.1) carries, for
 every python 3.10/3.11/3.12 x torch 2.5.1/2.6.0 x CUDA 12.4 x GPU architecture (sm80 = A100 and
 other 8.x cards, sm90 = H100) cell, two wheels: `stream_cqsa` with the classic CUDA extensions and
 the companion `stream_cqsa_native` with the wave kernel. Install both; they replace the PyPI
 package with the same version plus the extensions:
 
 ```bash
-V=v2.2.0; T=1cu124torch2.6sm80; PY=cp311     # pick your torch / CUDA / GPU / python
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa-2.2.0-$T-$PY-$PY-linux_x86_64.whl
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa_native-2.2.0-$T-$PY-$PY-linux_x86_64.whl
+V=v2.2.1; T=1cu124torch2.6sm80; PY=cp311     # pick your torch / CUDA / GPU / python
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa-2.2.1-$T-$PY-$PY-linux_x86_64.whl
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa_native-2.2.1-$T-$PY-$PY-linux_x86_64.whl
 ```
 
 Also on the release page: one wheel with both extensions for torch 2.10 / CUDA 13 / python 3.11
-(`stream_cqsa-2.2.0-1cu130torch210sm8090-...whl`, sm80 + sm90), and the pure wheel and sdist that
+(`stream_cqsa-2.2.1-1cu130torch210sm8090-...whl`, sm80 + sm90), and the pure wheel and sdist that
 PyPI serves. The CUDA wheels are too large for PyPI (100 MB per file), which is why they live on
 GitHub, as PyTorch's own CUDA wheels do. They are built by `.github/workflows/wheels.yml` on every
 tag; publishing to PyPI is the `pypi` job, enabled by the repository variable `PYPI_PUBLISH=true`
@@ -212,7 +212,9 @@ planner forms: wave CUDA 6.98*N + 1.92*W (R² 0.9998; Q/K/V + fp32 output + accu
 token, one fp32 partial output per packed token), wave Triton 4.84*N + 7.79*W (R² 0.978; the wave is
 gathered into packed fp16 Q/K/V copies as well; both pooled over the c sweep and the N series, per-series
 fits in `fits.json`). W_wave rises with N and with c until it hits the
-budget (1.6M packed tokens at 512K, 1.8M from 1M on), which is the plateau in the plots. Within a
+budget (1.6M packed tokens at 512K, 1.8M from 1M on), which is the plateau in the plots. The sweep ran with
+the v2.2.0 default budget of 2M; since v2.2.1 the default is min(2M, max(512K, N)), which at 512K, itr=1
+gives 4 waves and a 4.8 GiB peak instead of 6.6 at a time cost of at most 1.3%. Within a
 wave the subproblems run in one batched launch, so the GPU schedules all of them together; waves run
 one after another.
 

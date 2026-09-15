@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## v2.2.1 (2026-09-15)
 
+* Wave engine default budget: min(2M, max(512K, N)) packed tokens per wave instead of a flat 2M
+  (`max_wave_tokens` / `CQSA_MAX_WAVE_TOKENS` / `CQSA_MIN_WAVE_TOKENS` still override). Peak device
+  memory at 512K, itr=1: 4.8 GiB instead of 6.6 (the 2M budget cost the packed partial outputs of the
+  whole call); a cap of ~N tokens measured <= 1.3% slower on an A100-SXM4-80GB (131K-512K).
 * Routing: with `kernel="auto"` the wave engine is taken only for >= 20 subproblems (c >= 21 at
   itr=1, or itr=2; `CQSA_WAVE_MIN_SUBPROBLEMS`), where it measured faster than the classic engine;
   below that the classic engine is faster and uses less device memory (profile sweep, v2.2.0).
