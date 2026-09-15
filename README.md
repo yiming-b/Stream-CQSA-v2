@@ -210,7 +210,8 @@ not: it holds a whole wave of packed partial outputs, and the wave is capped by 
 packed tokens by default), so the fit is `peak = a*N + b*W_wave + c` with W_wave the largest wave the
 planner forms: wave CUDA 6.98*N + 1.92*W (R² 0.9998; Q/K/V + fp32 output + accumulator per resident
 token, one fp32 partial output per packed token), wave Triton 4.84*N + 7.79*W (R² 0.978; the wave is
-gathered into packed fp16 Q/K/V copies as well). W_wave rises with N and with c until it hits the
+gathered into packed fp16 Q/K/V copies as well; both pooled over the c sweep and the N series, per-series
+fits in `fits.json`). W_wave rises with N and with c until it hits the
 budget (1.6M packed tokens at 512K, 1.8M from 1M on), which is the plateau in the plots. Within a
 wave the subproblems run in one batched launch, so the GPU schedules all of them together; waves run
 one after another.
