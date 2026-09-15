@@ -141,7 +141,7 @@ Stream-CQSA continues, exact.
 ## Layout
 
     stream_cqsa/      the package (engine, planner, devkit, adapters, distributed, autograd)
-    csrc/, csrc_nc/   the two kernel source trees (FlashAttention-2 + CQS; v11 and v9)
+    csrc/, csrc_nc/   the classic CUDA kernel's causal and non-causal builds (FlashAttention-2 + CQS)
     native/           the multi-subproblem "wave" kernel (cqsa_native): sources, build, tests, benchmark
     benchmarks/profile_sweep.py   one-parameter profiles (c; N x {itr, acc}) with quadratic/linear fits: results/profile_sweep/
     tests/            pytest suite (engine, planner, devkit, adapters)

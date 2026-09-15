@@ -33,7 +33,7 @@ Sections: 1 setup · 2 the OOM boundary · 3 the engine's knobs (`itr`, `acc`, h
 concurrency, quorum sets) · 4 autograd with independent forward/backward depths ·
 5 automatic configuration from a hardware description · 6 the developer kit (exactness +
 performance of any inner kernel) · 7 adapters: automatic conversion of FlexAttention kernels ·
-8 the native kernels (v11 causal, v9 non-causal) vs FlashAttention-2 · 9 the two engines on the two
+8 the classic CUDA kernel vs FlashAttention-2 · 9 the two engines on the two
 kernels (classic / wave × CUDA / Triton, and how `attention()` chooses) · 10 multi-device.
 """)
 
@@ -41,9 +41,8 @@ md("## 1. Setup")
 code("""
 import os, time, gc, math, json
 import torch, torch.nn.functional as F
-# The two native kernels (built from csrc/ and csrc_nc/, see README): causal calls use v11, non-causal v9.
-os.environ.setdefault("CQSA_CUDA_MODULE", "cqsa_cuda_next_v11")
-os.environ.setdefault("CQSA_CUDA_MODULE_NONCAUSAL", "cqsa_cuda_next_v9")
+# Production kernels: the classic CUDA kernel (a causal and a non-causal build, csrc/ and csrc_nc/), the wave
+# kernel (native/, cqsa_native) and the Triton kernels; the package finds whichever are installed.
 import stream_cqsa
 from stream_cqsa.stable_stream import stream_cqsa_forward, stream_cqsa_backward, TraceRecorder
 from stream_cqsa.native_autograd import stream_cqsa_attn, StreamCQSAAttention
@@ -53,7 +52,7 @@ from stream_cqsa.devkit import compare_kernels, quick_bench, Config, run_config,
 import stream_cqsa.interface as I
 dev = torch.device("cuda")
 print(torch.cuda.get_device_name(0), "|", torch.__version__)
-print("causal kernel:", os.path.basename(I.cqsa_cuda.__file__), "| non-causal kernel:", os.path.basename(I.cqsa_cuda_noncausal.__file__))
+print("classic CUDA kernel: causal build", "loaded" if I.cqsa_cuda is not None else "missing", "| non-causal build", "loaded" if I.cqsa_cuda_noncausal is not None else "missing")
 B, H, D = 1, 8, 64
 def make_qkv(N, device="cpu", seed=0):
     g = torch.Generator().manual_seed(seed)
@@ -255,12 +254,13 @@ print("\\nSDPA with a dense mask and no lse (second lse pass):"); compare_kernel
 """)
 
 md("""
-## 8. The native kernels vs FlashAttention-2
+## 8. The classic CUDA kernel vs FlashAttention-2
 
-The v2 forward kernel (v11) is FlashAttention-2 with a per-tile CQS verdict that costs a register AND, a
-straight-line steady loop over live tiles only, and compile-time CQS on/off. On the real subproblem it is
-19% faster than the v1 kernel and, with CQS off, as fast as FlashAttention-2. Non-causal calls are served by
-v9 (an open ptxas issue with v11's non-causal instantiation is documented in `docs/`).
+The classic CUDA kernel is FlashAttention-2 with a per-tile CQS verdict that costs a register AND, a
+straight-line steady loop over live tiles only, and compile-time CQS on/off. With CQS off it is as fast as
+FlashAttention-2; with CQS on it skips the fully masked tiles of a subproblem. Causal and non-causal calls
+use two builds of it (`docs/kernel_technical_note.md`). The wave kernel of section 9 runs several such
+subproblems per launch.
 """)
 code("""
 from stream_cqsa.interface import flash_attn_func_cqs_group_bits, flash_attn_func, cqs_block_summaries
@@ -275,14 +275,8 @@ qq, kk, vv = (torch.randn(1, L, H, D, device=dev, dtype=torch.float16) for _ in 
 bits = torch.as_tensor(bits_np, device=dev); bo, ba = (t.cuda() for t in cqs_block_summaries(bits))
 print(f"one itr=1 subproblem, L={L} (3N/7 of N=131072), causal, ms per call:")
 print(f"  FlashAttention-2 monolithic on L      : {ms(lambda: fa2(qq, kk, vv, causal=True)):.2f}")
-print(f"  v2 kernel, CQS off (plain)            : {ms(lambda: flash_attn_func(qq, kk, vv, causal=True)):.2f}")
-print(f"  v2 kernel, CQS on (real subproblem)   : {ms(lambda: flash_attn_func_cqs_group_bits(qq, kk, vv, bits, causal=True, cqs_blk_or=bo, cqs_blk_and=ba)):.2f}  (22% of tiles are skipped as fully masked)")
-try:
-    import importlib; ship = importlib.import_module("cqsa_cuda"); saved = I.cqsa_cuda; I.cqsa_cuda = ship
-    print(f"  v1 (shipped) kernel, CQS on           : {ms(lambda: flash_attn_func_cqs_group_bits(qq, kk, vv, bits, causal=True, cqs_blk_or=bo, cqs_blk_and=ba)):.2f}")
-    I.cqsa_cuda = saved
-except Exception as e:
-    print("  (shipped v1 kernel not on PYTHONPATH:", type(e).__name__, ")")
+print(f"  classic CUDA kernel, CQS off (plain)  : {ms(lambda: flash_attn_func(qq, kk, vv, causal=True)):.2f}")
+print(f"  classic CUDA kernel, CQS on (subproblem): {ms(lambda: flash_attn_func_cqs_group_bits(qq, kk, vv, bits, causal=True, cqs_blk_or=bo, cqs_blk_and=ba)):.2f}  (22% of tiles are skipped as fully masked)")
 del qq, kk, vv
 """)
 
