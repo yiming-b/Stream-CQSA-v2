@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (v2.2.0)
+## v2.2.0 (2026-09-15)
 
 * Wave engine on both kernels: `wave_forward(..., kernel="cuda"|"triton"|"auto")`. The Triton
   wave kernel is the CQS Triton forward generalised to the wave layout (W subproblems padded to a
@@ -16,6 +16,12 @@
   covers them.
 * Profile sweep with a kernel axis (classic CUDA / classic Triton / wave CUDA / wave Triton) and
   c in {3, ..., 133}.
+* Routing: `attention()` keeps the classic engine for host-accumulator (acc=CPU) forwards, where its
+  overlapped per-subproblem transfers beat the wave engine's per-wave host merge by 5-7% at 1M-2M
+  tokens on an A100-SXM4-80GB; `kernel="wave-cuda"` / `"wave-triton"` select the wave engine's
+  host accumulator explicitly.
+* Measurement note: Della's `gpu80` pool on gpu-short is A100 80GB PCIe; the SXM4 cards need
+  `--constraint=sxm`. The paper re-run tables are PCIe, the profile sweep is SXM4-80GB.
 
 ## v2.1.2 (2026-09-15)
 

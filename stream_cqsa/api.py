@@ -265,9 +265,11 @@ def _pick_wave(kernel: str, kw: dict, is_causal: bool, q: torch.Tensor, directio
             return False
     except Exception:
         return False
-    # the wave forward can accumulate on the host (accumulate_on_gpu=False); the wave backward
-    # still keeps its fp32 gradients on the device, so host-accumulator backwards use the classic engine
-    if direction != "fwd" and (kw.get("low_memory") or kw.get("accumulate_on_gpu") is False):
+    # Host-accumulator calls default to the classic engine: its per-subproblem transfers overlap
+    # with compute, and on an A100-SXM4-80GB it is 5-7% faster than the wave engine's per-wave
+    # host merge at 1M-2M tokens (profile sweep, v2.2.0). kernel="wave*" still selects the wave
+    # engine's host accumulator explicitly. The wave backward keeps fp32 gradients on the device.
+    if kw.get("low_memory") or kw.get("accumulate_on_gpu") is False:
         return False
     from .native_wave import native_supports
     return native_supports(q.dtype, int(q.shape[-1]))      # depends on the kernel set the extension was built with

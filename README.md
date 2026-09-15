@@ -46,7 +46,10 @@ Two implementations of the kernels ship, and where you get them differs:
 | **CUDA build** | the classic CUDA extensions (FlashAttention-2-derived CQS forward, CUDA backward) plus the native wave kernel; the fastest forward | GitHub release page (prebuilt wheels per python / torch / CUDA / GPU) or a source build | see below |
 
 The package picks at run time: CUDA extensions and the wave kernel when they are importable,
-Triton otherwise. `stream-cqsa-doctor` shows which kernels loaded. The Triton backward is the
+Triton otherwise. `stream-cqsa-doctor` shows which kernels loaded. Since v2.2.0 the wave engine
+also runs on the Triton kernel (`attention(..., kernel="wave-triton")`; `"wave-cuda"` pins the
+CUDA one), supports the host accumulator (`accumulate_on_gpu=False`) on both, and the quorum-set
+register includes c=3 and c=133; the automatic planner enumerates every registered set. The Triton backward is the
 default in both builds (it measured faster than the CUDA backward at every length);
 `CQSA_BACKWARD=cuda` selects the CUDA backward.
 
@@ -64,20 +67,20 @@ compiling: `CQSA_SKIP_EXT=1 pip install --no-build-isolation git+https://github.
 
 ### CUDA build (GitHub release page)
 
-The [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.1.2) carries, for
+The [release page](https://github.com/yiming-b/Stream-CQSA-v2/releases/tag/v2.2.0) carries, for
 every python 3.10/3.11/3.12 x torch 2.5.1/2.6.0 x CUDA 12.4 x GPU architecture (sm80 = A100 and
 other 8.x cards, sm90 = H100) cell, two wheels: `stream_cqsa` with the classic CUDA extensions and
 the companion `stream_cqsa_native` with the wave kernel. Install both; they replace the PyPI
 package with the same version plus the extensions:
 
 ```bash
-V=v2.1.2; T=1cu124torch2.6sm80; PY=cp311     # pick your torch / CUDA / GPU / python
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa-2.1.2-$T-$PY-$PY-linux_x86_64.whl
-pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa_native-2.1.2-$T-$PY-$PY-linux_x86_64.whl
+V=v2.2.0; T=1cu124torch2.6sm80; PY=cp311     # pick your torch / CUDA / GPU / python
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa-2.2.0-$T-$PY-$PY-linux_x86_64.whl
+pip install https://github.com/yiming-b/Stream-CQSA-v2/releases/download/$V/stream_cqsa_native-2.2.0-$T-$PY-$PY-linux_x86_64.whl
 ```
 
 Also on the release page: one wheel with both extensions for torch 2.10 / CUDA 13 / python 3.11
-(`stream_cqsa-2.1.2-1cu130torch210sm8090-...whl`, sm80 + sm90), and the pure wheel and sdist that
+(`stream_cqsa-2.2.0-1cu130torch210sm8090-...whl`, sm80 + sm90), and the pure wheel and sdist that
 PyPI serves. The CUDA wheels are too large for PyPI (100 MB per file), which is why they live on
 GitHub, as PyTorch's own CUDA wheels do. They are built by `.github/workflows/wheels.yml` on every
 tag; publishing to PyPI is the `pypi` job, enabled by the repository variable `PYPI_PUBLISH=true`
