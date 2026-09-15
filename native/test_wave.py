@@ -6,8 +6,8 @@ Exactness tests for the native wave kernel + engine (next/native).
 import os, sys, time, math
 import torch
 import torch.nn.functional as F
-os.environ.setdefault("CQSA_CUDA_MODULE", "cqsa_cuda")
-os.environ.setdefault("CQSA_CUDA_MODULE_NONCAUSAL", "cqsa_cuda_nc")
+os.environ.setdefault("CQSA_CUDA_MODULE", "cqsa_cuda_next_v11")
+os.environ.setdefault("CQSA_CUDA_MODULE_NONCAUSAL", "cqsa_cuda_next_v9")
 from stream_cqsa.native_wave import wave_forward, wave_backward, wave_attention, native_ext, wave_tasks, build_wave_tables, block_base_relative, SEG_ALIGN
 from stream_cqsa.stable_stream import stream_cqsa_forward
 from stream_cqsa.autoconfig import QUORUM_SETS
@@ -36,6 +36,7 @@ def ref64(q, k, v, causal):
 
 
 def rel(a, b):
+    b = b.to(a.device)
     return ((a.double() - b.double()).norm() / b.double().norm().clamp_min(1e-30)).item()
 
 
@@ -106,6 +107,18 @@ out_d, _ = wave_forward(q.to(dev), k.to(dev), v.to(dev), causal=True, itr=1, c=7
 check(f"host-resident (pool slots {info_h['pool_slots']}, waves {info_h['wave_sizes']}) == device-resident", rel(out_h, out_d) < 1e-6, f"rel {rel(out_h, out_d):.1e}")
 out_h2, info_h2 = wave_forward(q, k, v, causal=True, itr=1, c=7, interest_set=(0, 1, 3), pool_slots=4)
 check(f"host-resident small pool (slots 4, waves {info_h2['wave_sizes']})", rel(out_h2, out_d) < 1e-6, f"rel {rel(out_h2, out_d):.1e}")
+
+# ---- 3b. host accumulator (acc=CPU): device- and host-resident inputs, one wave and several
+out_c, info_c = wave_forward(q.to(dev), k.to(dev), v.to(dev), causal=True, itr=1, c=7, interest_set=(0, 1, 3), accumulate_on_gpu=False)
+check(f"acc=CPU device-resident == acc=GPU (out on {out_c.device})", out_c.device.type == "cpu" and rel(out_c, out_d) < 1e-6,
+      f"rel {rel(out_c, out_d):.1e}")
+out_c2, info_c2 = wave_forward(q.to(dev), k.to(dev), v.to(dev), causal=True, itr=1, c=7, interest_set=(0, 1, 3), accumulate_on_gpu=False, max_wave_subproblems=2)
+check(f"acc=CPU device-resident, {info_c2['n_waves']} waves == acc=GPU", rel(out_c2, out_d) < 1e-6, f"rel {rel(out_c2, out_d):.1e}")
+out_c3, info_c3 = wave_forward(q, k, v, causal=True, itr=1, c=7, interest_set=(0, 1, 3), accumulate_on_gpu=False, pool_slots=4)
+check(f"acc=CPU host-resident (slots 4, {info_c3['n_waves']} waves) == acc=GPU", rel(out_c3, out_d) < 1e-6, f"rel {rel(out_c3, out_d):.1e}")
+out_c4, info_c4 = wave_forward(q.to(dev), k.to(dev), v.to(dev), causal=True, itr=2, c=7, interest_set=(0, 1, 3), accumulate_on_gpu=False, max_wave_subproblems=5)
+out_d4, _ = wave_forward(q.to(dev), k.to(dev), v.to(dev), causal=True, itr=2, c=7, interest_set=(0, 1, 3))
+check(f"acc=CPU itr=2 ({info_c4['n_waves']} waves) == acc=GPU", rel(out_c4, out_d4) < 1e-6, f"rel {rel(out_c4, out_d4):.1e}")
 
 # ---- 4. backward vs fp64 autograd
 for (N, itr, c, causal) in [(2048, 1, 7, True), (2048, 1, 7, False), (4096, 2, 7, True)]:

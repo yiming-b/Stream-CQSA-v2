@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+* Wave engine: host accumulator (`wave_forward(..., accumulate_on_gpu=False)`, the classic engine's
+  acc=CPU): each wave is merged on the device over the tokens it touches and folded into fp32 host
+  accumulators; the device never holds the full output. `attention()` routes host-accumulator
+  forwards to the wave engine. Profile sweep gains a kernel axis (CUDA / wave / Triton).
+
 ## v2.1.2 (2026-09-15)
 
 * Triton backward by default (`CQSA_BACKWARD=cuda` restores the CUDA backward): faster at every

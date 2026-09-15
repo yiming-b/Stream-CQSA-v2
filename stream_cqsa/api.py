@@ -181,7 +181,9 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
             if direction == "bwd":
                 out = wave_attention(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, **wkw)
             else:
-                out, _ = wave_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, **wkw)
+                acc_gpu = not (kw.get("low_memory") or kw.get("accumulate_on_gpu") is False)
+                out, _ = wave_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose,
+                                      accumulate_on_gpu=acc_gpu, **wkw)
         except Exception as exc:                                     # noqa: BLE001
             if not _is_oom(exc) or kernel == "wave":
                 raise
@@ -254,8 +256,9 @@ def _pick_wave(kernel: str, kw: dict, is_causal: bool, q: torch.Tensor, directio
             return False
     except Exception:
         return False
-    # the wave engine keeps its accumulator (and, in the backward, the fp32 gradients) on the device
-    if kw.get("low_memory") or kw.get("accumulate_on_gpu") is False:
+    # the wave forward can accumulate on the host (accumulate_on_gpu=False); the wave backward
+    # still keeps its fp32 gradients on the device, so host-accumulator backwards use the classic engine
+    if direction != "fwd" and (kw.get("low_memory") or kw.get("accumulate_on_gpu") is False):
         return False
     from .native_wave import native_supports
     return native_supports(q.dtype, int(q.shape[-1]))      # depends on the kernel set the extension was built with

@@ -259,17 +259,51 @@ def _budget_tokens(device, per_token: int, reserved: int, fraction: float, cap: 
 # ---------------------------------------------------------------------------
 # Forward
 # ---------------------------------------------------------------------------
+def _merge_wave_to_host(ext, acc_h, l_h, m_h, out_pack, lse_pack, tb, stage, dev):
+    """
+    acc=CPU merge of one wave: the packed (out, lse) rows are merged on the device into
+    accumulators over the U tokens this wave touches (``tb.uniq``), copied to pinned host
+    memory, and folded into the host accumulators with the max-shifted formula the device
+    merge uses, so the result equals the acc=GPU path up to fp32 summation order.
+    """
+    U = int(tb.uniq.numel())
+    H, D = acc_h.shape[1], acc_h.shape[2]
+    acc_w = torch.zeros((U, H, D), device=dev, dtype=torch.float32)
+    l_w = torch.zeros((U, H), device=dev, dtype=torch.float32)
+    m_w = torch.full((U, H), float("-inf"), device=dev, dtype=torch.float32)
+    local = torch.arange(U, device=dev, dtype=tb.uniq.dtype)
+    ext.wave_merge(acc_w, l_w, m_w, out_pack, lse_pack, tb.order, tb.seg, local, int(tb.S))
+    sa, sl, sm = (t[:U] for t in stage)
+    sa.copy_(acc_w, non_blocking=True); sl.copy_(l_w, non_blocking=True); sm.copy_(m_w, non_blocking=True)
+    idx = tb.uniq.to("cpu", non_blocking=True)
+    torch.cuda.synchronize(dev)
+    del acc_w, l_w, m_w, local
+    with _cpu_threads(CPU_THREADS):
+        m_old = m_h[idx]
+        m_new = torch.maximum(m_old, sm)
+        w_old = torch.exp(m_old - m_new)           # 0 where the token was untouched so far (m_old = -inf)
+        w_new = torch.exp(sm - m_new)              # every uniq token has at least one row: sm is finite
+        acc_h[idx] = acc_h[idx] * w_old.unsqueeze(-1) + sa * w_new.unsqueeze(-1)
+        l_h[idx] = l_h[idx] * w_old + sl * w_new
+        m_h[idx] = m_new
+
+
 def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: bool = True, scale: Optional[float] = None,
                  itr: int = 1, c: int = 7, interest_set: Sequence[int] = (0, 1, 3),
                  max_wave_tokens: Optional[int] = None, max_wave_subproblems: Optional[int] = None,
                  memory_fraction: float = 0.85, device=None, pool_slots: Optional[int] = None,
-                 verbose: Optional[bool] = None):
+                 accumulate_on_gpu: bool = True, verbose: Optional[bool] = None):
     """
     Exact attention by CQS decomposition on the native wave kernel.
 
     q/k/v: ``[B, H, N, D]`` fp16/bf16, on the device (read in place, no gather)
     or on the host (streamed into a device chunk pool wave by wave).
     Returns ``(out [B, H, N, D] fp32, info)``; ``info["lse"]`` is ``[B, H, N]``.
+
+    ``accumulate_on_gpu=False`` (the classic engine's acc=CPU): every wave is merged on
+    the device into accumulators over the tokens it touches only, which are then folded
+    into fp32 accumulators in host memory with the same max-shifted merge; ``out`` and
+    ``lse`` come back on the host and the device never holds the full fp32 output.
     """
     ext = native_ext()
     B, H, N, D = q.shape
@@ -277,8 +311,10 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
     scale = float(D ** -0.5 if scale is None else scale)
     tasks = wave_tasks(N, itr, c, interest_set, H=H, D=D, itemsize=q.element_size())
     on_device = q.is_cuda
-    acc_bytes = N * H * D * 4 + 2 * N * H * 4
-    per_tok = fwd_bytes_per_token(H, D)
+    acc_gpu = bool(accumulate_on_gpu)
+    # device accumulators: the whole output (acc=GPU), or one wave's touched tokens (acc=CPU)
+    acc_bytes = (N * H * D * 4 + 2 * N * H * 4) if acc_gpu else 0
+    per_tok = fwd_bytes_per_token(H, D) + (0 if acc_gpu else 4 * H * D + 8 * H)
 
     if on_device:
         max_tokens = _budget_tokens(dev, per_tok, acc_bytes + (256 << 20), memory_fraction, max_wave_tokens)
@@ -300,15 +336,23 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
         max_tokens = _budget_tokens(dev, per_tok, acc_bytes + pool.bytes + (256 << 20), memory_fraction, max_wave_tokens)
         waves = pool.plan(tasks, interest_set, max_tokens, max_wave_subproblems)
 
-    out = torch.empty((B, H, N, D), device=dev, dtype=torch.float32)
-    lse = torch.empty((B, H, N), device=dev, dtype=torch.float32)
-    acc = torch.zeros((N, H, D), device=dev, dtype=torch.float32)
-    acc_l = torch.zeros((N, H), device=dev, dtype=torch.float32)
-    acc_m = torch.empty((N, H), device=dev, dtype=torch.float32)
+    acc_dev = dev if acc_gpu else torch.device("cpu")
+    out = torch.empty((B, H, N, D), device=acc_dev, dtype=torch.float32)
+    lse = torch.empty((B, H, N), device=acc_dev, dtype=torch.float32)
+    acc = torch.zeros((N, H, D), device=acc_dev, dtype=torch.float32)
+    acc_l = torch.zeros((N, H), device=acc_dev, dtype=torch.float32)
+    acc_m = torch.empty((N, H), device=acc_dev, dtype=torch.float32)
+    stage = None
+    if not acc_gpu:
+        # pinned staging for one wave's merged partial (sized to the largest wave)
+        u_max = max(min(N, sum(int(t.local_size) for t in w)) for w in waves)
+        stage = (torch.empty((u_max, H, D), dtype=torch.float32).pin_memory(),
+                 torch.empty((u_max, H), dtype=torch.float32).pin_memory(),
+                 torch.empty((u_max, H), dtype=torch.float32).pin_memory())
     info = dict(n_subproblems=len(tasks), n_waves=len(waves), wave_sizes=[len(w) for w in waves],
                 wave_tokens=[sum(int(t.local_size) for t in w) for w in waves], max_wave_tokens=int(max_tokens),
                 itr=int(itr), c=int(c), interest_set=tuple(interest_set), host_resident=not on_device,
-                pool_slots=(None if pool is None else pool.n_slots))
+                accumulate_on_gpu=acc_gpu, pool_slots=(None if pool is None else pool.n_slots))
     total_tokens = sum(int(t.local_size) for t in tasks) * B
     progress = Progress(
         total_tokens, enabled=verbose_enabled(verbose), unit="tok",
@@ -353,16 +397,20 @@ def wave_forward(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: b
             out_pack, lse_pack = ext.fwd_wave(qs, ks, vs, tb.cu, int(tb.max_L), int(tb.total), tb.bits, tb.blk_or, tb.blk_and,
                                               tb.blk_cu, bb, tb.bb_cu, SEG_ALIGN, scale, bool(causal),
                                               uniform_S=int(tb.S), uniform_W=int(tb.W))
-            ext.wave_merge(acc, acc_l, acc_m, out_pack, lse_pack, tb.order, tb.seg, tb.uniq, int(tb.S))
+            if acc_gpu:
+                ext.wave_merge(acc, acc_l, acc_m, out_pack, lse_pack, tb.order, tb.seg, tb.uniq, int(tb.S))
+            else:
+                _merge_wave_to_host(ext, acc, acc_l, acc_m, out_pack, lse_pack, tb, stage, dev)
             if progress.enabled:
                 torch.cuda.synchronize(dev)      # the bar reports finished work, not queued launches
             progress.update(sum(int(t.local_size) for t in wave))
             del out_pack, lse_pack, tb, bb
-        out[b].copy_((acc / acc_l.clamp_min(1e-30).unsqueeze(-1)).transpose(0, 1))
-        lse_b = acc_m + torch.log(acc_l.clamp_min(1e-30))
-        lse[b].copy_(torch.where(torch.isfinite(acc_m), lse_b, torch.full_like(lse_b, float("-inf"))).transpose(0, 1))
+        with _cpu_threads(CPU_THREADS):
+            out[b].copy_((acc / acc_l.clamp_min(1e-30).unsqueeze(-1)).transpose(0, 1))
+            lse_b = acc_m + torch.log(acc_l.clamp_min(1e-30))
+            lse[b].copy_(torch.where(torch.isfinite(acc_m), lse_b, torch.full_like(lse_b, float("-inf"))).transpose(0, 1))
     info["lse"] = lse
-    del acc, acc_l, acc_m
+    del acc, acc_l, acc_m, stage
     if pool is not None:
         pool.release()
     progress.close(f"{len(tasks)} subproblems in {len(waves)} wave{'s' if len(waves) != 1 else ''}")
