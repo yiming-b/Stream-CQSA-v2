@@ -4,9 +4,12 @@ can run, and how far.
 
 Reports the software (torch, CUDA, Triton, flash-attn), the kernels this
 package can use (CUDA extension, native wave kernel, Triton), the devices and
-host memory, the calibration cache, and the largest sequence length the
-monolithic kernel and Stream-CQSA can handle here (forward and backward, by the
-planner's memory model). ``check=True`` also runs a small exactness check of
+host memory, the calibration cache, and what fits on this machine: the largest
+sequence length one monolithic kernel call handles (device memory) and the
+largest Stream-CQSA handles under this machine's host RAM (forward and
+backward, by the planner's memory model). Stream-CQSA has no limit of its own;
+the host has to hold the sequence and the accumulators. ``check=True`` also
+runs a small exactness check of
 ``stream_cqsa.attention`` against ``F.scaled_dot_product_attention``.
 """
 from __future__ import annotations
@@ -42,11 +45,12 @@ def _largest_feasible(hw, *, B, H, D, dtype, causal, direction, mono: bool):
             host_ok = [c for c in cs if c["host"] <= hw.host_budget_bytes / 2**30]
             dev_ok = [c for c in cs if c["peak"] <= dev_budget]
             if dev_ok and not host_ok:
-                binds = f"host RAM: {min(c['host'] for c in cs):.0f} GiB needed at N={N:,} vs {hw.host_budget_bytes / 2**30:.0f} GiB budget"
+                binds = f"limited by host RAM: N={N:,} needs {min(c['host'] for c in cs):.0f} GiB, {hw.host_budget_bytes / 2**30:.0f} GiB available"
             elif host_ok and not dev_ok:
-                binds = f"device: {min(c['peak'] for c in cs):.1f} GiB needed at N={N:,} vs {dev_budget:.1f} GiB budget"
+                binds = f"limited by the device budget: N={N:,} needs {min(c['peak'] for c in cs):.1f} GiB, {dev_budget:.1f} GiB available"
             else:
-                binds = f"device and host at N={N:,}"
+                binds = (f"limited by host RAM (N={N:,} needs {min(c['host'] for c in cs):.0f} GiB, {hw.host_budget_bytes / 2**30:.0f} GiB available) "
+                         f"and by the device budget ({min(c['peak'] for c in cs):.1f} GiB needed, {dev_budget:.1f} GiB available)")
         break
     return best, binds
 
@@ -104,12 +108,17 @@ def doctor(*, check: bool = True, B: int = 1, H: int = 8, D: int = 64, dtype=tor
     lines.append(f"  cost model: {'calibrated for this GPU (' + _cost_model_cache_path() + ')' if cm else 'defaults (run stream_cqsa.calibrate(save=True) to fit this machine, ~1 min)'}")
 
     rep["limits"] = {}
-    lines.append(f"  largest N (B={B} H={H} D={D} {str(dtype).replace('torch.', '')}, {'causal' if causal else 'non-causal'}) by the planner's memory model, host inputs and outputs:")
+    lines.append(f"  what fits on this machine (B={B} H={H} D={D} {str(dtype).replace('torch.', '')}, {'causal' if causal else 'non-causal'}; "
+                 "planner's memory model; inputs and outputs in host memory; powers of two):")
     for direction, label in (("fwd", "forward"), ("bwd", "forward+backward")):
         m, _ = _largest_feasible(hw, B=B, H=H, D=D, dtype=dtype, causal=causal, direction=direction, mono=True)
         s, binds = _largest_feasible(hw, B=B, H=H, D=D, dtype=dtype, causal=causal, direction=direction, mono=False)
         rep["limits"][direction] = dict(monolithic=m, stream_cqsa=s, stream_cqsa_bound=binds)
-        lines.append(f"    {label:18s} monolithic up to N={m:,}   Stream-CQSA up to N={s:,}" + (f" (then {binds})" if binds else ""))
+        lines.append(f"    {label:18s} one monolithic kernel call: up to N={m:,} (device memory)")
+        lines.append(f"    {'':18s} Stream-CQSA:                up to N={s:,}" + (f" -- {binds}" if binds else ""))
+    lines.append("  Stream-CQSA has no sequence-length limit of its own: its device footprint stays bounded at any N. The sequence,")
+    lines.append("  the fp32 accumulators and the gradients live in host RAM, and that budget (80% of free RAM here) is what sets")
+    lines.append("  the numbers above; more host RAM, or a smaller model of the host footprint, moves them.")
 
     if check and (ks["cuda_extension"] or ks["triton"]):
         from .api import attention
