@@ -42,18 +42,12 @@ def _largest_feasible(hw, *, B, H, D, dtype, causal, direction, mono: bool):
             continue
         if not mono and cs:
             dev_budget = hw.devices[0].budget_bytes / 2**30; host_budget = hw.host_budget_bytes / 2**30
-            fit_dev = [c for c in cs if c["peak"] <= dev_budget]        # configurations the device could hold
-            fit_host = [c for c in cs if c["host"] <= host_budget]      # configurations the host could hold
-            need_host = min(c["host"] for c in fit_dev) if fit_dev else None    # host RAM the device-feasible ones need
-            need_dev = min(c["peak"] for c in fit_host) if fit_host else None   # device memory the host-feasible ones need
-            host_msg = f"N={N:,} needs {need_host:.0f} GiB of host RAM ({host_budget:.0f} available)" if need_host is not None else f"N={N:,}: no configuration fits the device budget"
-            dev_msg = f"{need_dev:.1f} GiB on the device ({dev_budget:.1f} available)" if need_dev is not None else "no configuration fits host RAM"
-            if need_host is not None and need_host > host_budget and (need_dev is None or need_dev <= dev_budget):
-                binds = f"limited by host RAM: {host_msg}"
-            elif need_dev is not None and need_dev > dev_budget and (need_host is None or need_host <= host_budget):
-                binds = f"limited by the device budget: N={N:,} needs {dev_msg}"
+            fit_dev = [c for c in cs if c["peak"] <= dev_budget]        # configurations the device could still hold
+            if fit_dev:
+                # the device is not the problem: the configurations that fit it need more host RAM than there is
+                binds = f"limited by host RAM: N={N:,} needs {min(c['host'] for c in fit_dev):.0f} GiB ({host_budget:.0f} available)"
             else:
-                binds = f"limited by host RAM and the device budget: {host_msg}; {dev_msg}"
+                binds = f"limited by the device budget: N={N:,} needs {min(c['peak'] for c in cs):.1f} GiB on the device ({dev_budget:.1f} available)"
         break
     return best, binds
 
