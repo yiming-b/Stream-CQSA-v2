@@ -1,7 +1,12 @@
 # Changelog
 
-## v2.2.2 (2026-09-15)
+## v2.2.2 (unreleased; bundled)
 
+* Planner: the forward's device floor charges the delivered output only as `attention()` delivers it
+  (fp16 to a device caller, nothing to a host caller) instead of always an fp32 device output; on an
+  8 GB laptop with 51 GiB of host RAM the feasible forward bound rises from 2M to 8.4M tokens.
+  `stream-cqsa-doctor` scans to 2^30 and names the budget that binds next (host RAM is what eventually
+  limits Stream-CQSA: the sequence and the fp32 accumulators / gradients live there).
 * `pip install stream-cqsa` now installs the Triton kernels' dependency itself: `triton` on Linux
   (PyTorch's Linux wheels already bring it) and the community build `triton-windows` on Windows, where
   the official `triton` package has no wheels. Previously a Windows install had no kernel at all until

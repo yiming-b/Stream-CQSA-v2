@@ -348,9 +348,11 @@ def plan(*, N: int, B: int = 1, H: int = 8, D: int = 64, dtype=torch.float16, ca
          hardware: HardwareSpec | None = None, model: CostModel | None = None,
          max_itr: int = 3, n_pars: Sequence[int] = (1, 2, 4), allow_distributed: bool = True,
          quorum_sets: dict[int, Sequence[int]] | None = None, direction: str = "fwd",
-         safety: float = 0.85, tol: float = 0.02) -> Plan:
+         safety: float = 0.85, tol: float = 0.02, out_bytes_per_el: int = 4) -> Plan:
     """
     Choose the configuration for one attention call on `hardware` (detected if None).
+    ``out_bytes_per_el``: device bytes per element the delivered forward output costs when the
+    accumulator is on the host (4 = classic engine default, 2 = fp16 to a device caller, 0 = host caller).
 
     `quorum_sets` ({c: interest_set}, default QUORUM_SETS) is the fourth axis:
     every (c, itr) pair is a candidate. Measured at N=131K (A100-40GB): for the
@@ -399,8 +401,9 @@ def plan(*, N: int, B: int = 1, H: int = 8, D: int = 64, dtype=torch.float16, ca
                             if n_par > n_tasks:
                                 continue
                             est = estimate_peak_bytes_bwd if bwd else estimate_peak_bytes
+                            extra = {} if bwd else {"out_bytes_per_el": int(out_bytes_per_el)}
                             peak = est(N, itr, B=B, H=H, D=D, itemsize=itemsize, n_par=n_par, c=c, l=l,
-                                       stream_from_host=host, accumulate_on_gpu=(acc == "gpu"))
+                                       stream_from_host=host, accumulate_on_gpu=(acc == "gpu"), **extra)
                             hostb = _host_bytes(N, B, H, D, itemsize, host, acc) * (2.0 if bwd else 1.0)
                             t = cm.cqsa_time(N, B, H, D, itr, causal, acc, host, n_par, world=w, hw=hw, c=c, l=l, direction=direction)
                             cands.append(dict(mode="cqsa" if w == 1 else "cqsa_dist", itr=itr, c=c, interest_set=tuple(iset),

@@ -23,19 +23,32 @@ def _gib(b: float) -> str:
     return f"{b / 2**30:.1f} GiB"
 
 
-def _largest_feasible(hw, *, B, H, D, dtype, causal, direction, mono: bool) -> int:
-    """Largest power-of-two N (up to 2^26) that fits, per the planner."""
+def _largest_feasible(hw, *, B, H, D, dtype, causal, direction, mono: bool):
+    """(largest power-of-two N up to 2^30 that fits per the planner, what binds at the next size).
+    Stream-CQSA bounds the *device* footprint; the host must still hold the sequence and the fp32
+    accumulators / gradients, so the host budget is what eventually binds."""
     from .autoconfig import plan
-    best = 0
-    for e in range(12, 27):
+    best, binds = 0, ""
+    for e in range(12, 31):
         N = 1 << e
-        p = plan(N=N, B=B, H=H, D=D, dtype=dtype, causal=causal, hardware=hw, direction=direction, allow_distributed=False)
-        ok = p.candidates[0]["ok"] if mono else any(c["ok"] for c in p.candidates)
-        if ok:
+        p = plan(N=N, B=B, H=H, D=D, dtype=dtype, causal=causal, hardware=hw, direction=direction, allow_distributed=False,
+                 out_bytes_per_el=0)
+        cs = [p.candidates[0]] if mono else [c for c in p.candidates if c["mode"] != "mono"]
+        if any(c["ok"] for c in cs):
             best = N
-        else:
-            break
-    return best
+            continue
+        if not mono and cs:
+            dev_budget = hw.devices[0].budget_bytes / 2**30
+            host_ok = [c for c in cs if c["host"] <= hw.host_budget_bytes / 2**30]
+            dev_ok = [c for c in cs if c["peak"] <= dev_budget]
+            if dev_ok and not host_ok:
+                binds = f"host RAM: {min(c['host'] for c in cs):.0f} GiB needed at N={N:,} vs {hw.host_budget_bytes / 2**30:.0f} GiB budget"
+            elif host_ok and not dev_ok:
+                binds = f"device: {min(c['peak'] for c in cs):.1f} GiB needed at N={N:,} vs {dev_budget:.1f} GiB budget"
+            else:
+                binds = f"device and host at N={N:,}"
+        break
+    return best, binds
 
 
 def doctor(*, check: bool = True, B: int = 1, H: int = 8, D: int = 64, dtype=torch.float16, causal: bool = True,
@@ -91,12 +104,12 @@ def doctor(*, check: bool = True, B: int = 1, H: int = 8, D: int = 64, dtype=tor
     lines.append(f"  cost model: {'calibrated for this GPU (' + _cost_model_cache_path() + ')' if cm else 'defaults (run stream_cqsa.calibrate(save=True) to fit this machine, ~1 min)'}")
 
     rep["limits"] = {}
-    lines.append(f"  largest N (B={B} H={H} D={D} {str(dtype).replace('torch.', '')}, {'causal' if causal else 'non-causal'}) by the planner's memory model:")
+    lines.append(f"  largest N (B={B} H={H} D={D} {str(dtype).replace('torch.', '')}, {'causal' if causal else 'non-causal'}) by the planner's memory model, host inputs and outputs:")
     for direction, label in (("fwd", "forward"), ("bwd", "forward+backward")):
-        m = _largest_feasible(hw, B=B, H=H, D=D, dtype=dtype, causal=causal, direction=direction, mono=True)
-        s = _largest_feasible(hw, B=B, H=H, D=D, dtype=dtype, causal=causal, direction=direction, mono=False)
-        rep["limits"][direction] = dict(monolithic=m, stream_cqsa=s)
-        lines.append(f"    {label:18s} monolithic up to N={m:,}   Stream-CQSA up to N={s:,}")
+        m, _ = _largest_feasible(hw, B=B, H=H, D=D, dtype=dtype, causal=causal, direction=direction, mono=True)
+        s, binds = _largest_feasible(hw, B=B, H=H, D=D, dtype=dtype, causal=causal, direction=direction, mono=False)
+        rep["limits"][direction] = dict(monolithic=m, stream_cqsa=s, stream_cqsa_bound=binds)
+        lines.append(f"    {label:18s} monolithic up to N={m:,}   Stream-CQSA up to N={s:,}" + (f" (then {binds})" if binds else ""))
 
     if check and (ks["cuda_extension"] or ks["triton"]):
         from .api import attention

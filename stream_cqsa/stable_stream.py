@@ -590,9 +590,15 @@ def choose_parallelism(
 
 
 def per_el_floor(itemsize: int, stream_from_host: bool,
-                 accumulate_on_gpu: bool) -> int:
-    """Device-resident bytes per element that no decomposition depth reduces."""
-    per_el = 4
+                 accumulate_on_gpu: bool, out_bytes_per_el: int = 4) -> int:
+    """Device-resident bytes per element that no decomposition depth reduces.
+
+    ``out_bytes_per_el``: what the delivered output costs on the device. 4 is the classic
+    engine's default (the fp32 result is moved to the device at the end). ``attention()``
+    delivers the result in the caller's dtype and only where the caller is: 2 for a device
+    caller, 0 for a host caller. With the accumulator on the device the fp32 output is
+    materialised next to it regardless (4)."""
+    per_el = 4 if accumulate_on_gpu else int(out_bytes_per_el)
     if not stream_from_host:
         per_el += 3 * itemsize
     if accumulate_on_gpu:
@@ -603,7 +609,7 @@ def per_el_floor(itemsize: int, stream_from_host: bool,
 def estimate_peak_bytes(N: int, itr: int, *, B: int, H: int, D: int, itemsize: int,
                        n_par: int = 2, c: int = 7, l: int = 3,
                        stream_from_host: bool = False,
-                       accumulate_on_gpu: bool = True) -> int:
+                       accumulate_on_gpu: bool = True, out_bytes_per_el: int = 4) -> int:
     """
     Predicted peak device memory for a Stream-CQSA forward.
 
@@ -630,7 +636,7 @@ def estimate_peak_bytes(N: int, itr: int, *, B: int, H: int, D: int, itemsize: i
     1.02x at itr=2, flat across N = 32768 .. 131072. The ratio does *not* improve
     with N because both terms are linear in N.
     """
-    floor = per_el_floor(itemsize, stream_from_host, accumulate_on_gpu) * N * H * D
+    floor = per_el_floor(itemsize, stream_from_host, accumulate_on_gpu, out_bytes_per_el) * N * H * D
     L = N
     for _ in range(int(itr)):
         L = int(L * l / c)

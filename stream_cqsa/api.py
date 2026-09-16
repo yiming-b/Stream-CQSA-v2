@@ -119,8 +119,9 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
     out_device = q.device
     hw = hardware_from_dict(hardware) if isinstance(hardware, dict) else (hardware or detect_hardware())
     direction = "bwd" if torch.is_grad_enabled() and (q.requires_grad or k.requires_grad or v.requires_grad) else "fwd"
+    out_el = q.element_size() if on_cuda else 0          # attention() delivers fp16 to a device caller, nothing to a host caller
     p = _plan(N=N, B=B, H=H, D=D, dtype=q.dtype, causal=bool(is_causal), hardware=hw, direction=direction,
-              allow_distributed=False)
+              allow_distributed=False, out_bytes_per_el=out_el)
     if plan_only:
         return p
     vb = verbose_enabled(verbose)
@@ -142,7 +143,7 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
             del qd, kd, vd
             torch.cuda.empty_cache()
             p = _plan(N=N, B=B, H=H, D=D, dtype=q.dtype, causal=bool(is_causal), hardware=detect_hardware(),
-                      direction=direction, allow_distributed=False)
+                      direction=direction, allow_distributed=False, out_bytes_per_el=out_el)
             if p.mode == "mono":     # the planner still thinks it fits: force a decomposition
                 p.mode, p.itr, p.c, p.interest_set = "cqsa", 1, 7, (0, 1, 3)
 
