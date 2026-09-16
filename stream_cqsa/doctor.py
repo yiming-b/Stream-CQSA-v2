@@ -66,9 +66,11 @@ def doctor(*, check: bool = True, B: int = 1, H: int = 8, D: int = 64, dtype=tor
     lines.append(f"    CUDA extension (causal / non-causal): {'yes' if ks['cuda_extension'] else 'no'} {_where(I.cqsa_cuda)} / "
                  f"{'yes' if ks['cuda_extension_noncausal'] else 'no'} {_where(I.cqsa_cuda_noncausal)}")
     lines.append(f"    native wave kernel (cqsa_native):     {'yes' if ks['native_wave'] else 'no (build native/ to enable; optional)'}")
-    lines.append(f"    Triton kernels (no build):            {'yes' if ks['triton'] else 'no (pip install triton)'}")
+    triton_hint = "pip install triton-windows" if sys.platform == "win32" else "pip install triton"
+    lines.append(f"    Triton kernels (no build):            {'yes' if ks['triton'] else f'no ({triton_hint})'}")
     if not (ks["cuda_extension"] or ks["triton"]):
-        lines.append("    !! no kernel available: install triton (pip install triton) or build the CUDA extension")
+        lines.append(f"    !! no kernel available: {triton_hint} (stream-cqsa >= 2.2.2 installs it automatically), "
+                     "or install the CUDA wheels from the release page (Linux only)")
     if not torch.cuda.is_available():
         lines.append("  no CUDA device visible")
         rep["devices"] = []

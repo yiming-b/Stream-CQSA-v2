@@ -247,9 +247,13 @@ setup(
            if os.getenv("CQSA_BUILD_NATIVE", "").strip().lower() in ("1", "true", "yes") else [])),
     cmdclass={} if SKIP_EXT else {"build_ext": BuildExtension.with_options(use_ninja=True)},
     python_requires=">=3.9",
-    install_requires=["torch", "numpy"],
+    # Triton is the no-build kernel path. PyTorch's Linux wheels already depend on it; on Windows the
+    # official package has no wheels, so the community build `triton-windows` is used instead.
+    install_requires=["torch", "numpy",
+                      'triton>=3.0; sys_platform == "linux"',
+                      'triton-windows>=3.0; sys_platform == "win32"'],
     extras_require={
-        "triton": ["triton"],                      # the no-build kernels
+        "triton": ["triton"],                      # the no-build kernels (explicit, any platform)
         "progress": ["tqdm"],                      # verbose=True progress bars (a plain bar is used without it)
         "bench": ["matplotlib", "tqdm"],
         "test": ["pytest"],

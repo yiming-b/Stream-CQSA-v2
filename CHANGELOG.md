@@ -1,12 +1,15 @@
 # Changelog
 
-## Unreleased
+## v2.2.2 (2026-09-15)
 
-* Demo notebook: section 9 runs both engines on both kernels (classic / wave x CUDA / Triton), shows
-  what `kernel="auto"` decides by subproblem count, and the wave budget; re-executed end to end.
-* Classic engine: the device chunk pool and the accumulator's staging are released, and cached blocks
-  returned to the driver, before a host-accumulated output is moved to the device (a 512K call under a
-  tight cap failed on allocator fragmentation).
+* `pip install stream-cqsa` now installs the Triton kernels' dependency itself: `triton` on Linux
+  (PyTorch's Linux wheels already bring it) and the community build `triton-windows` on Windows, where
+  the official `triton` package has no wheels. Previously a Windows install had no kernel at all until
+  the user installed Triton by hand. `stream-cqsa-doctor` names the right package per platform.
+* Demo notebook: section 0 "Install and call" (pip install, one drop-in call, the same call on a
+  described 1 GiB device, `patch_sdpa`, `estimate`).
+* Classic engine: the device chunk pool and accumulator staging are released before a host-accumulated
+  output is moved to the device (a capped 512K call failed on allocator fragmentation).
 
 ## v2.2.1 (2026-09-15)
 
