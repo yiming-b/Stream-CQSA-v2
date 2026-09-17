@@ -1,7 +1,13 @@
 # Changelog
 
-## v2.2.2 (unreleased; bundled)
+## v2.2.2 (2026-09-17)
 
+* `stream_cqsa.place_inputs(*tensors)`: guardrail for a crowded device -- moves host tensors to the GPU
+  only if they fit (free memory minus a reserve; an out-of-memory during the move is caught) and keeps
+  the rest pinned in host memory, where `attention()` streams them from.
+* `verbose=True` prints one uniform line per call before and after running: monolithic or decomposed
+  (itr, c, subproblem count), where Q/K/V live (device / host streamed), where the accumulator lives
+  (GPU / CPU), engine and kernel, subproblems in flight, output placement, OOM retries.
 * Planner: the forward's device floor charges the delivered output only as `attention()` delivers it
   (fp16 to a device caller, nothing to a host caller) instead of always an fp32 device output; on an
   8 GB laptop with 51 GiB of host RAM the feasible forward bound rises from 2M to 8.4M tokens.

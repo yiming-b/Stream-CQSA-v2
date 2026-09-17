@@ -8,7 +8,7 @@ from .stable_stream import (
 from .oom_fallback import (stream_cqsa_auto, attention_oom_safe,
                            ESCALATION, ESCALATION_FAST)
 from .native_autograd import stream_cqsa_attn, StreamCQSAAttention
-from .api import attention, estimate, patch_sdpa, unpatch_sdpa, patched_sdpa, kernels_available
+from .api import attention, estimate, patch_sdpa, unpatch_sdpa, patched_sdpa, kernels_available, place_inputs
 from .doctor import doctor
 from .progress import verbose_enabled
 

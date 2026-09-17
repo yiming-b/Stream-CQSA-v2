@@ -46,7 +46,8 @@ Two implementations of the kernels ship, and where you get them differs:
 | **CUDA build** | the classic CUDA extensions (FlashAttention-2-derived CQS forward, CUDA backward) plus the native wave kernel; the fastest forward | GitHub release page (prebuilt wheels per python / torch / CUDA / GPU) or a source build | see below |
 
 The package picks at run time: CUDA extensions and the wave kernel when they are importable,
-Triton otherwise. `stream-cqsa-doctor` shows which kernels loaded. Since v2.2.0 the wave engine
+Triton otherwise. `stream-cqsa-doctor` shows which kernels loaded. `stream_cqsa.place_inputs(q, k, v)` moves host tensors to the GPU only if they fit and keeps the rest pinned
+in host memory (a guardrail for shared GPUs); `verbose=True` prints every automatic choice. Since v2.2.0 the wave engine
 also runs on the Triton kernel (`attention(..., kernel="wave-triton")`; `"wave-cuda"` pins the
 CUDA one), supports the host accumulator (`accumulate_on_gpu=False`) on both, and the quorum-set
 register includes c=3 and c=133; the automatic planner enumerates every registered set. The Triton backward is the

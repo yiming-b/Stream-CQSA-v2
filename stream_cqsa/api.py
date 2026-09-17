@@ -103,6 +103,62 @@ def attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, attn_mask=None,
         _INSIDE[0] -= 1
 
 
+def _config_line(*, stage: str, mode: str, itr=None, c=None, n_sub=None, qkv: str, acc: str, engine: str, kernel: str,
+                 n_par=None, out: str) -> str:
+    """One uniform line that states every automatic choice (printed with verbose=True)."""
+    dec = "monolithic (one kernel call, no decomposition)" if mode == "mono" else f"decomposed: itr={itr}, c={c}, {n_sub} subproblems"
+    parts = [f"Stream-CQSA {stage}: {dec}", f"Q/K/V on {qkv}", f"accumulator on {acc}", f"engine {engine}, kernel {kernel}"]
+    if n_par:
+        parts.append(f"{n_par} in flight")
+    parts.append(f"output to {out}")
+    return " | ".join(parts)
+
+
+def place_inputs(*tensors: torch.Tensor, device="cuda", reserve_fraction: float = 0.15, pin: bool = True,
+                 verbose: Optional[bool] = None):
+    """
+    Guardrail for a crowded device: move host tensors to ``device`` only if they fit, and keep
+    the rest in (pinned) host memory, where ``attention`` streams them from. A tensor is moved
+    when the free device memory minus ``reserve_fraction`` of the total still holds it; an
+    out-of-memory during the move is caught and the tensor stays on the host. Device tensors
+    are returned unchanged. Returns the tensors in the order given.
+
+        q, k, v = stream_cqsa.place_inputs(q, k, v)          # each on the GPU if it fits, else host (pinned)
+        out = stream_cqsa.attention(q, k, v, is_causal=True)
+    """
+    vb = verbose_enabled(verbose)
+    dev = torch.device(device)
+    out = []
+    for i, t in enumerate(tensors):
+        if t.is_cuda or dev.type != "cuda" or not torch.cuda.is_available():
+            out.append(t); continue
+        free, total = torch.cuda.mem_get_info(dev)
+        need = t.numel() * t.element_size()
+        moved = None
+        if need <= free - reserve_fraction * total:
+            try:
+                moved = t.to(dev)
+            except Exception as exc:                                     # noqa: BLE001
+                if not _is_oom(exc):
+                    raise
+                torch.cuda.empty_cache()
+        if moved is None:
+            if pin and not t.is_pinned():
+                try:
+                    t = t.pin_memory()
+                except Exception:                                        # noqa: BLE001
+                    pass
+            if vb:
+                print(f"Stream-CQSA place_inputs: tensor {i} ({need / 2**30:.2f} GiB) stays in host memory "
+                      f"({free / 2**30:.2f} GiB free on {dev}); attention() will stream it", flush=True)
+            out.append(t)
+        else:
+            if vb:
+                print(f"Stream-CQSA place_inputs: tensor {i} ({need / 2**30:.2f} GiB) -> {dev}", flush=True)
+            out.append(moved)
+    return tuple(out) if len(out) != 1 else out[0]
+
+
 def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, verbose, hardware, kernel, plan_only,
                return_plan, return_info=False, **overrides):
     """``return_info=True`` appends the engine's info dict (engine, kernel, itr, subproblem count,
@@ -129,7 +185,9 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
     # ---- monolithic: the call fits, so it IS the normal kernel ------------------
     if p.mode == "mono" and not overrides:
         if vb:
-            print(f"Stream-CQSA: N={N} fits ({p.est_peak_gib:.1f} GiB) -- monolithic call, no decomposition", flush=True)
+            print(f"Stream-CQSA: N={N} fits ({p.est_peak_gib:.1f} GiB)", flush=True)
+            print(_config_line(stage="plan", mode="mono", qkv=("device" if on_cuda else "host, copied to the device"),
+                               acc="device", engine="monolithic", kernel="sdpa", out=f"{q.device} {str(q.dtype).replace('torch.', '')}"), flush=True)
         qd, kd, vd = ((t if on_cuda else t.to("cuda", non_blocking=True)) for t in (q, k, v))
         try:
             out = _TRUE_SDPA(qd, kd, vd, is_causal=bool(is_causal), scale=scale)
@@ -181,6 +239,17 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
     use_wave = _pick_wave(kernel, kw, is_causal, q, direction)
     if vb:
         print(f"Stream-CQSA: {p.reason}", flush=True)
+        _acc = "host (CPU)" if (kw.get("low_memory") or kw.get("accumulate_on_gpu") is False) else "device (GPU)"
+        _qkv = "host, streamed" if kw.get("stream_from_host") else "device"
+        _itr = kw.get("itr", "auto"); _c = int(kw.get("c", 7))
+        _nsub = (_c ** int(_itr)) if isinstance(_itr, int) else "planned per call"
+        if use_wave:
+            from .native_wave import resolve_wave_kernel
+            _eng, _ker = "wave", resolve_wave_kernel(WAVE_KERNELS.get(kernel, "auto"), q.dtype, int(q.shape[-1]))
+        else:
+            _eng, _ker = "classic", ("triton" if (kernel in ("triton", "wave-triton") or os.environ.get("CQSA_FORWARD", "").lower() == "triton") else "cuda")
+        print(_config_line(stage="plan", mode="cqsa", itr=_itr, c=_c, n_sub=_nsub, qkv=_qkv, acc=_acc, engine=_eng, kernel=_ker,
+                           n_par=kw.get("max_parallel"), out=f"{out_device} {str(q.dtype).replace('torch.', '')}"), flush=True)
     if use_wave:
         from .native_wave import wave_attention, wave_forward
         wkw = dict(itr=int(kw.get("itr", 1)), c=int(kw.get("c", 7)), interest_set=tuple(kw.get("interest_set", (0, 1, 3))))
@@ -223,6 +292,13 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
             out, info = stream_cqsa_forward(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, out_device="acc", **kw)
             info = {k_: v_ for k_, v_ in info.items() if k_ not in ("lse",) and not hasattr(v_, "device")}
             info["engine"] = "classic"; info["kernel"] = "triton" if os.environ.get("CQSA_FORWARD", "").lower() == "triton" else "cuda"
+    if vb:
+        print(_config_line(stage="ran", mode="cqsa", itr=info.get("itr", kw.get("itr")), c=info.get("c", kw.get("c", 7)),
+                           n_sub=info.get("n_subproblems"), qkv=("host, streamed" if kw.get("stream_from_host") else "device"),
+                           acc=("host (CPU)" if (kw.get("low_memory") or kw.get("accumulate_on_gpu") is False) else "device (GPU)"),
+                           engine=info.get("engine", "?"), kernel=info.get("kernel", "?"), n_par=info.get("n_parallel", kw.get("max_parallel")),
+                           out=f"{out_device} {str(q.dtype).replace('torch.', '')}")
+              + (f" | OOM retries {info['oom_retries']}" if info.get("oom_retries") else ""), flush=True)
     out = _deliver(out, out_device, q.dtype, vb)
     return _ret(out, p, info)
 

@@ -52,19 +52,26 @@ kernel, `stream_cqsa_native` with the wave kernel). The package uses whatever is
 Then it is one call with the signature of `torch.nn.functional.scaled_dot_product_attention`: when the
 call fits, it *is* the normal kernel; when it does not, it is decomposed exactly, on the fastest
 configuration the planner finds for this machine, and recomposed. Nothing to configure.
+
+On a shared or small GPU, creating the inputs is the one step outside the package's control: create
+them in host memory (or hand them to `stream_cqsa.place_inputs`, which moves what fits and leaves the
+rest pinned in host memory), and `attention` streams whatever is on the host. `verbose=True` prints one
+line per call stating every automatic choice: monolithic or decomposed (itr, c, subproblems), where
+Q/K/V are, where the accumulator is, the engine and kernel, and where the output goes.
 """)
 code("""
 import torch, stream_cqsa
 print("stream_cqsa", stream_cqsa.__version__, "| kernels:", stream_cqsa.kernels_available())
-q, k, v = (torch.randn(1, 8, 262_144, 64, device="cuda", dtype=torch.float16) for _ in range(3))
-out = stream_cqsa.attention(q, k, v, is_causal=True)                 # drop-in for F.scaled_dot_product_attention
-ref = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
-print(tuple(out.shape), out.dtype, "| max |out - SDPA| =", (out.float() - ref.float()).abs().max().item())
+q, k, v = (torch.randn(1, 8, 262_144, 64, dtype=torch.float16) for _ in range(3))   # created in host memory: safe on any GPU
+q, k, v = stream_cqsa.place_inputs(q, k, v, verbose=True)                         # onto the GPU if they fit, else stay on the host
+out = stream_cqsa.attention(q, k, v, is_causal=True, verbose=True)                 # drop-in for F.scaled_dot_product_attention
+ref = torch.nn.functional.scaled_dot_product_attention(q.cuda(), k.cuda(), v.cuda(), is_causal=True)
+print(tuple(out.shape), out.dtype, "| max |out - SDPA| =", (out.float().cuda() - ref.float()).abs().max().item())
 """)
 code("""
 # The same call when the device is too small: describe the budget (or let it be detected), and watch it plan.
 out_small, plan = stream_cqsa.attention(q, k, v, is_causal=True, hardware={"cuda:0": "1GiB", "host": "64GiB"}, verbose=True, return_plan=True)
-print("plan:", plan.name(), "| max |out - SDPA| =", (out_small.float() - ref.float()).abs().max().item())
+print("plan:", plan.name(), "| max |out - SDPA| =", (out_small.float().cuda() - ref.float()).abs().max().item())
 # Two more one-liners: route an existing model's attention through it, and ask before running a huge one.
 stream_cqsa.patch_sdpa(); stream_cqsa.unpatch_sdpa()                 # F.scaled_dot_product_attention -> stream_cqsa.attention
 _ = stream_cqsa.estimate(N=16_777_216, B=1, H=8, D=64, dtype=torch.float16, causal=True)   # prints the plan table
