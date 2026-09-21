@@ -113,6 +113,7 @@ the rest is optional:
 | see what it decided and what ran | `attention(..., verbose=True)`, or `return_plan=True` / `return_info=True` |
 | know before running a huge call | `stream_cqsa.estimate(N=16_777_216)` (memory, configuration, time; nothing is allocated) |
 | be safe on a shared or small GPU | create inputs in host memory, or `q, k, v = stream_cqsa.place_inputs(q, k, v)` (moves what fits) |
+| run inside a model where Q/K/V fill the GPU | nothing: `attention` releases Q/K/V to pinned host memory when nothing fits next to them, puts the output on the GPU first, and brings Q/K/V back if room remains (`evict_inputs=`, `restore_inputs=` = `"auto"`｜`True`｜`False`; `del` a fused QKV tensor first so the memory can be freed) |
 | describe the budget instead of detecting it | `attention(..., hardware={"cuda:0": "10GiB", "host": "64GiB"})` |
 | route an existing model without touching it | `stream_cqsa.patch_sdpa()` or `with stream_cqsa.patched_sdpa(): model(...)` |
 | pin a setting | keywords of `attention`: `itr=`, `c=`/`interest_set=`, `accumulate_on_gpu=False`, `max_parallel=`, `bwd_itr=`, `kernel="cuda"｜"triton"｜"wave-cuda"｜"wave-triton"` |

@@ -321,11 +321,12 @@ class Plan:
     est_host_gib: float = 0.0
     reason: str = ""
     candidates: list[dict] = field(default_factory=list)
+    evict_inputs: bool = False     # Q/K/V are on the device now and are moved to host memory for the computation
 
     def name(self) -> str:
         if self.mode == "mono":
             return "monolithic"
-        s = f"cqsa c={self.c} itr={self.itr} acc={self.acc} n_par={self.n_par}" + (" host-resident Q/K/V" if self.stream_from_host else "")
+        s = f"cqsa c={self.c} itr={self.itr} acc={self.acc} n_par={self.n_par}" + ((" Q/K/V evicted to host" if self.evict_inputs else " host-resident Q/K/V") if self.stream_from_host else "")
         return s + (f" on {self.world} devices" if self.world > 1 else "")
 
     def engine_kwargs(self) -> dict:
@@ -348,7 +349,8 @@ def plan(*, N: int, B: int = 1, H: int = 8, D: int = 64, dtype=torch.float16, ca
          hardware: HardwareSpec | None = None, model: CostModel | None = None,
          max_itr: int = 3, n_pars: Sequence[int] = (1, 2, 4), allow_distributed: bool = True,
          quorum_sets: dict[int, Sequence[int]] | None = None, direction: str = "fwd",
-         safety: float = 0.85, tol: float = 0.02, out_bytes_per_el: int = 4) -> Plan:
+         safety: float = 0.85, tol: float = 0.02, out_bytes_per_el: int = 4,
+         resident_input_bytes: int = 0, budget_excludes_inputs: bool = True, evict_inputs: bool = False) -> Plan:
     """
     Choose the configuration for one attention call on `hardware` (detected if None).
     ``out_bytes_per_el``: device bytes per element the delivered forward output costs when the
@@ -362,6 +364,14 @@ def plan(*, N: int, B: int = 1, H: int = 8, D: int = 64, dtype=torch.float16, ca
     (l^2/c)^itr and per-task overhead is c^itr; the model has both terms.
     `direction="bwd"` plans the backward (its own memory estimate and cost) --
     the forward and backward depths are chosen independently.
+
+    Inputs already on the device (the end-to-end model case): ``resident_input_bytes`` is what
+    Q/K/V occupy there now. ``budget_excludes_inputs`` says whether the budget was measured with
+    them in place (free memory: True) or describes the whole allowance (a hardware dict: False).
+    A device-resident candidate counts Q/K/V in its estimate, so when the budget excludes them
+    they are credited back. A host-streaming candidate needs them off the device: with
+    ``evict_inputs`` their bytes are freed for the computation (the candidate is marked
+    ``evict``); without it they stay and are charged on top of the estimate.
     """
     hw = hardware or detect_hardware()
     cm = model or load_cost_model() or CostModel()
@@ -375,6 +385,8 @@ def plan(*, N: int, B: int = 1, H: int = 8, D: int = 64, dtype=torch.float16, ca
         groups.setdefault(d.identical_group, []).append(d)
     devs = max(groups.values(), key=lambda g: (len(g), min(x.budget_bytes for x in g)))
     dev_budget = min(d.budget_bytes for d in devs) * safety
+    R = int(resident_input_bytes)
+    dev_budget += R if budget_excludes_inputs else 0          # estimates below count Q/K/V; the measured budget did not
     cands: list[dict] = []
 
     bwd = direction == "bwd"
@@ -406,19 +418,26 @@ def plan(*, N: int, B: int = 1, H: int = 8, D: int = 64, dtype=torch.float16, ca
                                        stream_from_host=host, accumulate_on_gpu=(acc == "gpu"), **extra)
                             hostb = _host_bytes(N, B, H, D, itemsize, host, acc) * (2.0 if bwd else 1.0)
                             t = cm.cqsa_time(N, B, H, D, itr, causal, acc, host, n_par, world=w, hw=hw, c=c, l=l, direction=direction)
+                            evict = bool(host and R and evict_inputs)
+                            stay = R if (host and R and not evict) else 0      # streaming next to the unevicted device copy
                             cands.append(dict(mode="cqsa" if w == 1 else "cqsa_dist", itr=itr, c=c, interest_set=tuple(iset),
-                                              acc=acc, stream_from_host=host,
-                                              n_par=n_par, world=w, time=t, peak=peak / GIB, host=hostb / GIB,
-                                              ok=(peak <= dev_budget and hostb <= hw.host_budget_bytes)))
+                                              acc=acc, stream_from_host=host, evict=evict,
+                                              n_par=n_par, world=w, time=t, peak=(peak + stay) / GIB, host=hostb / GIB,
+                                              ok=(peak + stay <= dev_budget and hostb <= hw.host_budget_bytes)))
     feas = [c for c in cands if c["ok"]]
     if not feas:
         floor = per_el_floor(itemsize, True, False) * N * B * H * D
-        p = Plan(mode="cqsa", itr=max_itr, c=max(qsets), interest_set=tuple(qsets[max(qsets)]), direction=direction,
-                 acc="cpu", stream_from_host=True, n_par=1, world=len(devs),
-                 devices=[d.name for d in devs], candidates=cands,
+        # the most frugal configuration that was enumerated (so the subproblem-count cap holds): everything
+        # offloaded, one subproblem in flight, smallest predicted peak
+        off = [c for c in cands if c["mode"] == "cqsa" and c["stream_from_host"] and c["acc"] == "cpu" and c["n_par"] == 1]
+        fb = min(off, key=lambda c: (c["peak"], c["time"]))
+        p = Plan(mode="cqsa", itr=fb["itr"], c=fb["c"], interest_set=tuple(fb["interest_set"]), direction=direction,
+                 acc="cpu", stream_from_host=True, n_par=1, world=1, evict_inputs=bool(R and evict_inputs),
+                 devices=[d.name for d in devs[:1]], candidates=cands,
                  reason=(f"nothing fits: device budget {dev_budget / GIB:.1f} GiB, host budget {hw.host_budget_bytes / GIB:.0f} GiB; "
                          f"the O(N.H.D) device floor with everything offloaded is {floor / GIB:.1f} GiB. "
-                         f"Falling back to the deepest, most offloaded configuration on every device; expect OOM."))
+                         f"Falling back to the most frugal configuration (c={fb['c']}, itr={fb['itr']}, everything offloaded, "
+                         f"~{fb['peak']:.1f} GiB); the engine escalates on its own if that still does not fit."))
         return p
     front = [c for c in feas if not any((o["time"] < c["time"]) and (o["peak"] < c["peak"]) for o in feas)]
     best_t = min(c["time"] for c in front)
@@ -427,7 +446,8 @@ def plan(*, N: int, B: int = 1, H: int = 8, D: int = 64, dtype=torch.float16, ca
     p = Plan(mode=pick["mode"], itr=pick["itr"], c=pick["c"], interest_set=tuple(pick["interest_set"]), direction=direction,
              acc=pick["acc"], stream_from_host=pick["stream_from_host"],
              n_par=pick["n_par"], world=pick["world"], devices=[d.name for d in devs[:pick["world"]]],
-             est_time_s=pick["time"], est_peak_gib=pick["peak"], est_host_gib=pick["host"], candidates=cands)
+             est_time_s=pick["time"], est_peak_gib=pick["peak"], est_host_gib=pick["host"], candidates=cands,
+             evict_inputs=bool(pick.get("evict", False)))
     mono_c = cands[0]
     if pick["mode"] == "mono":
         p.reason = (f"monolithic fits ({mono_c['peak']:.2f} GiB <= {dev_budget / GIB:.1f} GiB budget) and is the fastest "

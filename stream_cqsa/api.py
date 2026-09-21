@@ -94,6 +94,15 @@ def attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, attn_mask=None,
     "wave-cuda", "wave-triton", "cuda", "triton".
     ``overrides`` (itr=, c=, interest_set=, max_parallel=, ...) pin engine settings.
     ``plan_only=True`` returns the plan without computing anything.
+
+    Inside a model (Q/K/V already on the device, little room left): ``evict_inputs="auto"``
+    (default) releases Q/K/V to pinned host memory for the computation when nothing fits next
+    to them -- the caller's tensors are rebound, so the device memory is really freed -- and
+    streams from there. The output is placed on the device first; then ``restore_inputs="auto"``
+    brings Q/K/V back if room remains (otherwise they stay valid host tensors). ``True`` /
+    ``False`` force or forbid either step. Gradients still arrive on the device. Memory is only
+    freed if nothing else references the storage (e.g. ``del`` a fused QKV tensor first);
+    ``return_info=True`` reports ``inputs_evicted``, ``evict_released_gib``, ``inputs_restored``.
     """
     _INSIDE[0] += 1
     try:
@@ -159,6 +168,104 @@ def place_inputs(*tensors: torch.Tensor, device="cuda", reserve_fraction: float 
     return tuple(out) if len(out) != 1 else out[0]
 
 
+def _pinned_copy(t: torch.Tensor) -> torch.Tensor:
+    """Host copy of a [B, H, N, D] device tensor, stored token-major ([B, N, H, D] in memory):
+    the layout the streaming engine gathers from, so it makes no second host copy."""
+    B, H, N, D = t.shape
+    try:
+        h = torch.empty((B, N, H, D), dtype=t.dtype, device="cpu", pin_memory=True)
+    except Exception:                                                # noqa: BLE001  (pinned memory exhausted / unavailable)
+        h = torch.empty((B, N, H, D), dtype=t.dtype, device="cpu")
+    h = h.transpose(1, 2)
+    h.copy_(t.detach())
+    return h
+
+
+class _ToHost(torch.autograd.Function):
+    """Differentiable move to pinned host memory; the gradient returns to the source device."""
+    @staticmethod
+    def forward(ctx, t):
+        ctx.dev = t.device
+        return _pinned_copy(t)
+
+    @staticmethod
+    def backward(ctx, g):
+        return g.to(ctx.dev)
+
+
+def _evict_inputs(tensors, grad: bool, vb: bool):
+    """Move the caller's device tensors to pinned host memory and RELEASE the device copies.
+
+    A plain ``.cpu()`` copies and leaves the device allocation alive behind the caller's own
+    reference. Here each tensor object is rebound onto the host copy (``t.data = host``), so the
+    device storage is freed unless something else still references it (a fused QKV projection
+    the slices are views of, an activation another op saved). What was actually released is
+    measured, not assumed. Returns (host_tensors, state); with ``grad`` the host tensors are
+    differentiable copies and the gradients come back on the device."""
+    dev = tensors[0].device
+    torch.cuda.synchronize(dev)
+    before = torch.cuda.memory_allocated(dev)
+    seen, expected = set(), 0
+    for t in tensors:
+        st = t.untyped_storage()
+        if st.data_ptr() not in seen:
+            seen.add(st.data_ptr()); expected += st.nbytes()
+    del st                                     # a storage handle keeps the device allocation alive
+    strides = [t.stride() for t in tensors]    # restored tensors get the caller's layout back
+    hosts = []
+    for t in tensors:
+        h = _ToHost.apply(t) if (grad and t.requires_grad) else _pinned_copy(t)
+        t.data = h.detach()                    # shares the host copy: no second host allocation
+        hosts.append(h)
+    torch.cuda.synchronize(dev)
+    torch.cuda.empty_cache()
+    freed = before - torch.cuda.memory_allocated(dev)
+    state = {"device": dev, "tensors": list(tensors), "strides": strides, "freed": int(freed), "expected": int(expected),
+             "restored": None}
+    if vb:
+        print(f"Stream-CQSA: evicted Q/K/V to pinned host memory, released {freed / 2**30:.2f} GiB on {dev}", flush=True)
+    if freed < 0.5 * expected:
+        warnings.warn(f"Stream-CQSA: evicting Q/K/V released only {freed / 2**30:.2f} of {expected / 2**30:.2f} GiB on {dev}: "
+                      "something else still references their storage (a fused QKV tensor they are views of, or an activation "
+                      "saved by another op). Drop that reference before the call (e.g. `del qkv`) to free the memory.",
+                      RuntimeWarning, stacklevel=4)
+    return hosts, state
+
+
+def _restore_inputs(state, mode, vb: bool, reserve_fraction: float = 0.10) -> bool:
+    """After the output is in place: bring Q/K/V back to the device if there is room (mode "auto"),
+    always try (True) or never (False). The output has priority, so this runs last. Tensors that
+    do not fit stay in host memory (``t.device`` tells the caller where each one is)."""
+    from .stable_stream import effective_free_bytes
+    dev = state["device"]
+    if mode is False:
+        state["restored"] = False
+        return False
+    ok = True
+    for t, stride in zip(state["tensors"], state["strides"]):
+        if t.device == dev:
+            continue
+        need = t.numel() * t.element_size()
+        total = torch.cuda.get_device_properties(dev).total_memory
+        if mode == "auto" and need > effective_free_bytes(dev) - reserve_fraction * total:
+            ok = False
+            continue
+        try:
+            d = torch.empty_strided(t.shape, stride, dtype=t.dtype, device=dev)
+            d.copy_(t.data, non_blocking=True)
+            torch.cuda.synchronize(dev)
+            t.data = d
+        except Exception as exc:                                     # noqa: BLE001
+            if not _is_oom(exc):
+                raise
+            torch.cuda.empty_cache(); ok = False
+    state["restored"] = ok
+    if vb:
+        print("Stream-CQSA: Q/K/V restored to " + str(dev) if ok else
+              f"Stream-CQSA: Q/K/V left in host memory (no room on {dev} next to the output); they remain valid tensors", flush=True)
+    return ok
+
+
 def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, verbose, hardware, kernel, plan_only,
                return_plan, return_info=False, **overrides):
     """``return_info=True`` appends the engine's info dict (engine, kernel, itr, subproblem count,
@@ -176,11 +283,52 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
     hw = hardware_from_dict(hardware) if isinstance(hardware, dict) else (hardware or detect_hardware())
     direction = "bwd" if torch.is_grad_enabled() and (q.requires_grad or k.requires_grad or v.requires_grad) else "fwd"
     out_el = q.element_size() if on_cuda else 0          # attention() delivers fp16 to a device caller, nothing to a host caller
+    # Inputs already on the device (the end-to-end model case). evict_inputs: "auto" moves them to
+    # host memory for the computation when nothing device-resident fits, True always, False never.
+    # restore_inputs: after the output is on the device, "auto" brings them back if there is room.
+    evict = overrides.pop("evict_inputs", "auto")
+    restore = overrides.pop("restore_inputs", "auto")
+    if evict not in ("auto", True, False) or restore not in ("auto", True, False):
+        raise ValueError("evict_inputs and restore_inputs take 'auto', True or False")
+    vb = verbose_enabled(verbose)
+    ev = {"state": None}                                  # eviction state, shared with _run (survives an exception there)
+    resident = (sum(t.numel() * t.element_size() for t in (q, k, v)) if on_cuda else 0)
+    pkw = dict(resident_input_bytes=resident, budget_excludes_inputs=hardware is None,
+               evict_inputs=bool(evict) and on_cuda)
+    if evict is True and on_cuda and not plan_only:
+        (q, k, v), ev["state"] = _evict_inputs((q, k, v), direction == "bwd", vb)
+        on_cuda = False
+        pkw = dict(resident_input_bytes=0)
+        if hardware is None:
+            hw = detect_hardware()
     p = _plan(N=N, B=B, H=H, D=D, dtype=q.dtype, causal=bool(is_causal), hardware=hw, direction=direction,
-              allow_distributed=False, out_bytes_per_el=out_el)
+              allow_distributed=False, out_bytes_per_el=out_el, **pkw)
     if plan_only:
         return p
-    vb = verbose_enabled(verbose)
+    try:
+        out, info = _run(q, k, v, p, is_causal=is_causal, scale=scale, direction=direction, on_cuda=on_cuda, out_el=out_el,
+                         overrides=overrides, kernel=kernel, verbose=verbose, vb=vb, evict=evict, ev=ev,
+                         out_device=out_device, pkw=pkw)
+    finally:
+        evicted = ev["state"]
+        if evicted is not None and evicted["restored"] is None:
+            try:
+                _restore_inputs(evicted, restore, vb)               # the output is delivered first; Q/K/V only if room remains
+            except Exception:                                        # noqa: BLE001
+                pass
+    if evicted is not None:
+        info = dict(info, inputs_evicted=True, inputs_restored=bool(evicted["restored"]),
+                    evict_released_gib=round(evicted["freed"] / 2**30, 3))
+    else:
+        info = dict(info, inputs_evicted=False)
+    return _ret(out, p, info)
+
+
+def _run(q, k, v, p, *, is_causal, scale, direction, on_cuda, out_el, overrides, kernel, verbose, vb, evict, ev,
+         out_device, pkw):
+    """Execute the plan; returns (output on the caller's device, info)."""
+    from .autoconfig import plan as _plan, detect_hardware
+    B, H, N, D = q.shape
 
     # ---- monolithic: the call fits, so it IS the normal kernel ------------------
     if p.mode == "mono" and not overrides:
@@ -192,7 +340,7 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
         try:
             out = _TRUE_SDPA(qd, kd, vd, is_causal=bool(is_causal), scale=scale)
             out = out if on_cuda else out.to(q.device)
-            return _ret(out, p, {"engine": "monolithic", "kernel": "sdpa", "itr": 0, "n_subproblems": 1})
+            return out, {"engine": "monolithic", "kernel": "sdpa", "itr": 0, "n_subproblems": 1}
         except Exception as exc:                                     # noqa: BLE001
             if not _is_oom(exc):
                 raise
@@ -201,7 +349,8 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
             del qd, kd, vd
             torch.cuda.empty_cache()
             p = _plan(N=N, B=B, H=H, D=D, dtype=q.dtype, causal=bool(is_causal), hardware=detect_hardware(),
-                      direction=direction, allow_distributed=False, out_bytes_per_el=out_el)
+                      direction=direction, allow_distributed=False, out_bytes_per_el=out_el,
+                      **dict(pkw, budget_excludes_inputs=True))
             if p.mode == "mono":     # the planner still thinks it fits: force a decomposition
                 p.mode, p.itr, p.c, p.interest_set = "cqsa", 1, 7, (0, 1, 3)
 
@@ -217,6 +366,13 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
             kw = dict(itr=int(c0["itr"]), c=int(c0["c"]), interest_set=tuple(c0["interest_set"]),
                       low_memory=(c0["acc"] == "cpu"), accumulate_on_gpu=(c0["acc"] == "gpu"),
                       stream_from_host=False, max_parallel=int(c0["n_par"]), shared_chunks=False)
+        elif evict:
+            # Nothing fits next to Q/K/V: release them to host memory for the computation. The
+            # output goes to the device first afterwards; Q/K/V return only if room remains.
+            (q, k, v), ev["state"] = _evict_inputs((q, k, v), direction == "bwd", vb)
+            on_cuda = False
+            if not kw.get("stream_from_host"):
+                kw.update(stream_from_host=True)
         elif direction == "bwd":
             # Copying the inputs to the host would sever the autograd graph. Keep them on the
             # device, park the accumulator in host memory, and let the engine escalate the
@@ -231,7 +387,7 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
             if direction == "bwd":
                 q, k, v = (t.to("cpu") for t in (q, k, v))                 # differentiable copies: the graph stays intact
             else:
-                q, k, v = (t.detach().to("cpu").pin_memory() for t in (q, k, v))
+                q, k, v = (_pinned_copy(t) for t in (q, k, v))            # token-major: the engine streams it as is
             on_cuda = False
     kw.update(overrides)
     bwd_itr = kw.pop("bwd_itr", "auto")          # depth of the backward: "auto" (planned on its own), "fwd", or an int
@@ -241,7 +397,7 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
     if vb:
         print(f"Stream-CQSA: {p.reason}", flush=True)
         _acc = "host (CPU)" if (kw.get("low_memory") or kw.get("accumulate_on_gpu") is False) else "device (GPU)"
-        _qkv = "host, streamed" if kw.get("stream_from_host") else "device"
+        _qkv = ("device -> evicted to host, streamed" if ev["state"] else "host, streamed") if kw.get("stream_from_host") else "device"
         _itr = kw.get("itr", "auto"); _c = int(kw.get("c", 7))
         _nsub = (_c ** int(_itr)) if isinstance(_itr, int) else "planned per call"
         if use_wave:
@@ -296,13 +452,14 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
             info["engine"] = "classic"; info["kernel"] = "triton" if os.environ.get("CQSA_FORWARD", "").lower() == "triton" else "cuda"
     if vb:
         print(_config_line(stage="ran", mode="cqsa", itr=info.get("itr", kw.get("itr")), c=info.get("c", kw.get("c", 7)),
-                           n_sub=info.get("n_subproblems"), qkv=("host, streamed" if kw.get("stream_from_host") else "device"),
+                           n_sub=info.get("n_subproblems"),
+                           qkv=(("device -> evicted to host, streamed" if ev["state"] else "host, streamed") if kw.get("stream_from_host") else "device"),
                            acc=("host (CPU)" if (kw.get("low_memory") or kw.get("accumulate_on_gpu") is False) else "device (GPU)"),
                            engine=info.get("engine", "?"), kernel=info.get("kernel", "?"), n_par=info.get("n_parallel", kw.get("max_parallel")),
                            out=f"{out_device} {str(q.dtype).replace('torch.', '')}")
               + (f" | OOM retries {info['oom_retries']}" if info.get("oom_retries") else ""), flush=True)
     out = _deliver(out, out_device, q.dtype, vb)
-    return _ret(out, p, info)
+    return out, info
 
 
 def _deliver(out: torch.Tensor, device, dtype, vb: bool) -> torch.Tensor:

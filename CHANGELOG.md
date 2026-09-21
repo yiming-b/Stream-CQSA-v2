@@ -6,6 +6,23 @@
   docstring, notebooks rewritten around it with the engine layer in a separate part); it gains `bwd_itr=`;
   `calibrate` is exported at the top level; `attention_oom_safe`, `stream_cqsa_auto` and `auto_attention`
   emit a `DeprecationWarning` pointing to it (they keep working).
+* Inside a model: when Q/K/V are on the device and nothing fits next to them, `attention` now releases them
+  to pinned host memory for the computation (the caller's tensors are rebound, so the device memory is
+  really freed; the amount released is measured, and a warning names the cause when a fused QKV tensor or a
+  saved activation keeps the storage alive), streams from the host copy, places the output on the device
+  first and then restores Q/K/V if room remains, with their original strides. `evict_inputs=` and
+  `restore_inputs=` take `"auto"` (default), `True` or `False`; `return_info=True` reports
+  `inputs_evicted`, `evict_released_gib`, `inputs_restored`. Works under autograd: the host copy is a
+  differentiable move and dQ/dK/dV arrive on the device. Previously a host copy was made while the device
+  copy stayed alive, which freed nothing.
+* Planner: `plan(resident_input_bytes=, budget_excludes_inputs=, evict_inputs=)` models inputs that are
+  already on the device. A budget measured as free memory no longer counts device-resident Q/K/V twice
+  (device callers get plans for the memory they really have); unevicted inputs are charged to streaming
+  candidates; `Plan.evict_inputs` records the decision.
+* Fix: when nothing fit, the planner fell back to the largest quorum set at the maximum depth, ignoring the
+  4,096-subproblem cap (c=133, itr=3: 2.35 M subproblems, which stalled in task construction). The fallback
+  is now the most frugal enumerated configuration.
+* Host copies made by `attention` are stored token-major, so the streaming engine no longer re-copies them.
 
 ## v2.2.2 (2026-09-17)
 
