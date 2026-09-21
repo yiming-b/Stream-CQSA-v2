@@ -2,9 +2,12 @@
 #SBATCH --job-name=ooc_b40_fwd
 #SBATCH --account=akey
 #SBATCH --qos=gpu-short
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=96G
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=80G
 #SBATCH --gres=gpu:a100:1 --constraint="gpu80&pcie"
 #SBATCH --time=05:00:00
+# host memory: at 4.2M the forward holds q,k,v,dout fp16 (16.8 GiB) + the engine's token-major copy of q,k,v
+# (12.6) + fp32 accumulator and output (2 x 8.4) + pinned staging (~6-10): ~56-62 GiB (the paper mid job
+# peaked at 61.9 GiB through 4.2M forward) -> 80G. The backward jobs stay at 96G.
 #SBATCH --output=results/ooc_rivals/logs/%x_%j.out
 set -uo pipefail
 cd /scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2
