@@ -94,49 +94,44 @@ fp16/bf16 and head dims 64/128); `CQSA_BUILD_NATIVE=1` adds the wave kernel.
 
 ## Use
 
+One function, with the signature of `torch.nn.functional.scaled_dot_product_attention`:
+
 ```python
 import torch, stream_cqsa
 
-q, k, v = (torch.randn(1, 8, 4_000_000, 64, dtype=torch.float16) for _ in range(3))   # host or device
-out = stream_cqsa.attention(q, k, v, is_causal=True)          # SDPA's signature; exact, always fits
+q, k, v = (torch.randn(1, 8, 4_000_000, 64, dtype=torch.float16) for _ in range(3))   # host or device tensors
+out = stream_cqsa.attention(q, k, v, is_causal=True)          # exact, always fits
 ```
 
-That is the whole API for most uses. Below the memory boundary the call *is* the
-monolithic kernel; above it the planner chooses the decomposition from the free memory
-and the call runs exactly, on the best kernel available. Gradients flow when the inputs
-require them. To route an existing model without touching it:
+Below the memory boundary the call *is* the monolithic kernel; above it the planner chooses the
+decomposition from the free memory and the call runs exactly, on the best kernel installed, recovering
+from out-of-memory on its own. Gradients flow when the inputs require them. There is nothing else to learn;
+the rest is optional:
 
-```python
-stream_cqsa.patch_sdpa()          # F.scaled_dot_product_attention now falls back to Stream-CQSA above 64K tokens
-with stream_cqsa.patched_sdpa():  # or scoped
-    model(...)
-```
+| I want to... | how |
+|---|---|
+| see what it decided and what ran | `attention(..., verbose=True)`, or `return_plan=True` / `return_info=True` |
+| know before running a huge call | `stream_cqsa.estimate(N=16_777_216)` (memory, configuration, time; nothing is allocated) |
+| be safe on a shared or small GPU | create inputs in host memory, or `q, k, v = stream_cqsa.place_inputs(q, k, v)` (moves what fits) |
+| describe the budget instead of detecting it | `attention(..., hardware={"cuda:0": "10GiB", "host": "64GiB"})` |
+| route an existing model without touching it | `stream_cqsa.patch_sdpa()` or `with stream_cqsa.patched_sdpa(): model(...)` |
+| pin a setting | keywords of `attention`: `itr=`, `c=`/`interest_set=`, `accumulate_on_gpu=False`, `max_parallel=`, `bwd_itr=`, `kernel="cuda"｜"triton"｜"wave-cuda"｜"wave-triton"` |
+| make the planner's times accurate for my GPU | `stream_cqsa.calibrate()` once (about a minute; cached in `~/.cache/stream_cqsa`) |
+| check an installation | `stream-cqsa-doctor` |
 
-Seeing what it does, and what it would cost:
-
-```python
-out = stream_cqsa.attention(q, k, v, is_causal=True, verbose=True)   # or CQSA_VERBOSE=1
-#  Stream-CQSA: forward of N=4.0M tokens ... decomposed over c=31 at depth itr=1: 31 subproblems on cuda:0 | ... | expected ~2m10s
-#  Stream-CQSA: 100%|██████████| 31/31 [02:05<00:00,  4.05s/subproblem]
-#  Stream-CQSA: done in 2m06s (31 subproblems)
-stream_cqsa.estimate(16_777_216, H=8, D=64)     # dry run: monolithic fits?, chosen configuration, device/host memory, time
-stream_cqsa.calibrate()                         # ~1 min once per GPU model; saved to ~/.cache/stream_cqsa and used from then on
-```
-
-Explicit control (all optional keyword overrides of `attention`, or the functions
-themselves): `stream_cqsa_forward(q, k, v, itr=, c=, interest_set=, low_memory=,
-stream_from_host=, max_parallel=, verbose=)`, `stream_cqsa_backward(..., itr="auto")`,
-`stream_cqsa_attn` (autograd), `native_wave.wave_forward/wave_attention` (the wave kernel),
-`plan(...)`, `autotune(...)`, `devkit.compare_kernels(inner_fn, mono_fn)`,
-`adapters.flex_inner(score_mod, extra_mask_mod)`, `distributed.dist_stream_cqsa_forward/_backward`
-under `torch.distributed`. `attention(..., kernel="wave"|"cuda"|"triton")` pins the kernel.
+Everything else in the package is the engine layer that `attention` is built on, for kernel and systems
+developers: `stream_cqsa_forward` / `stream_cqsa_backward` / `stream_cqsa_attn` (the streaming engine),
+`native_wave` (the wave engine), `autoconfig.plan` / `autotune`, `devkit.compare_kernels(inner_fn, mono_fn)`,
+`adapters.flex_inner(score_mod, extra_mask_mod)`, and `distributed.dist_stream_cqsa_forward/_backward` under
+`torch.distributed`. `attention_oom_safe`, `stream_cqsa_auto` and `auto_attention` are legacy entry points kept
+for old code; they emit a `DeprecationWarning` pointing to `attention`.
 
 `sbatch slurm/quickstart.slurm` runs all of the above on one GPU (`benchmarks/quickstart.py`;
 output in `results/quickstart/`): the dry run, the monolithic path, the decomposed path under
 a memory cap with progress, host-resident inputs, autograd, and a patched module.
 
-Notebooks (executed, outputs included): `notebooks/stream_cqsa_v2_demo.ipynb` runs every
-feature on one GPU; `notebooks/oom_boundary_demo.ipynb` sweeps N explicitly under a memory cap
+Notebooks (executed, outputs included): `notebooks/stream_cqsa_v2_demo.ipynb` shows the one
+function (Part A) and the engine layer under it (Part B) on one GPU; `notebooks/oom_boundary_demo.ipynb` sweeps N explicitly under a memory cap
 and shows the baseline matching Stream-CQSA below the boundary and OOM-ing above it while
 Stream-CQSA continues, exact.
 

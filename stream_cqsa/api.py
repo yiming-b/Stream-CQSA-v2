@@ -234,6 +234,7 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
                 q, k, v = (t.detach().to("cpu").pin_memory() for t in (q, k, v))
             on_cuda = False
     kw.update(overrides)
+    bwd_itr = kw.pop("bwd_itr", "auto")          # depth of the backward: "auto" (planned on its own), "fwd", or an int
     if not kw.get("stream_from_host"):
         kw["shared_chunks"] = False
     use_wave = _pick_wave(kernel, kw, is_causal, q, direction)
@@ -256,7 +257,8 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
         wkern = WAVE_KERNELS.get(kernel, "auto")
         try:
             if direction == "bwd":
-                out = wave_attention(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose, **wkw)
+                out = wave_attention(q, k, v, causal=bool(is_causal), scale=scale, verbose=verbose,
+                                     bwd_itr=(bwd_itr if isinstance(bwd_itr, int) else None), **wkw)
                 info = {"engine": "wave", "kernel": wkern, **wkw}
             else:
                 acc_gpu = not (kw.get("low_memory") or kw.get("accumulate_on_gpu") is False)
@@ -282,7 +284,7 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
                                    itr=kw.get("itr", "auto"), c=kw.get("c", 7), interest_set=kw.get("interest_set", (0, 1, 3)),
                                    stream_from_host=bool(kw.get("stream_from_host", host)),
                                    accumulate_on_gpu=bool(kw.get("accumulate_on_gpu", True)),
-                                   max_parallel=kw.get("max_parallel"))
+                                   max_parallel=kw.get("max_parallel"), bwd_itr=bwd_itr)
             info = {"engine": "classic", "kernel": "triton" if os.environ.get("CQSA_FORWARD", "").lower() == "triton" else "cuda",
                     "itr": kw.get("itr", "auto"), "c": kw.get("c", 7), "stream_from_host": bool(kw.get("stream_from_host", host)),
                     "accumulate_on_gpu": bool(kw.get("accumulate_on_gpu", True))}

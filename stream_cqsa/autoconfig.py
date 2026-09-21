@@ -572,6 +572,9 @@ def auto_attention(q, k, v, *, causal: bool = False, scale: float | None = None,
     the planned size; otherwise the single-device frontier point is used.
     `overrides` are forwarded to the engine (e.g. allow_escalation=False).
     """
+    import warnings
+    warnings.warn("stream_cqsa.autoconfig.auto_attention is a legacy entry point; use stream_cqsa.attention(q, k, v, "
+                  "is_causal=..., hardware=..., return_plan=True)", DeprecationWarning, stacklevel=2)
     from .stable_stream import stream_cqsa_forward
     if isinstance(hardware, dict):
         hardware = hardware_from_dict(hardware)

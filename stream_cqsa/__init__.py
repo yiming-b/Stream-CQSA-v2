@@ -1,3 +1,15 @@
+"""
+Stream-CQSA. The one function to use:
+
+    out = stream_cqsa.attention(q, k, v, is_causal=True)      # drop-in for F.scaled_dot_product_attention
+
+It runs the normal kernel when the call fits and the exact decomposition when it does not, plans the
+configuration, recovers from out-of-memory, supports autograd, and takes host or device inputs.
+Helpers around it: place_inputs, estimate, calibrate, patch_sdpa / patched_sdpa, doctor. Everything else
+in this package (stream_cqsa_forward, stream_cqsa_attn, native_wave, distributed, devkit, adapters) is the
+engine layer for kernel and systems developers; attention_oom_safe / stream_cqsa_auto / auto_attention
+are legacy entry points kept for old code.
+"""
 __version__ = "2.2.2"
 
 from .stable_stream import (
@@ -10,6 +22,7 @@ from .oom_fallback import (stream_cqsa_auto, attention_oom_safe,
 from .native_autograd import stream_cqsa_attn, StreamCQSAAttention
 from .api import attention, estimate, patch_sdpa, unpatch_sdpa, patched_sdpa, kernels_available, place_inputs
 from .doctor import doctor
+from .autoconfig import calibrate
 from .progress import verbose_enabled
 
 from .interface import (

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+* One entry point: `stream_cqsa.attention` is documented as the function to use (README table, package
+  docstring, notebooks rewritten around it with the engine layer in a separate part); it gains `bwd_itr=`;
+  `calibrate` is exported at the top level; `attention_oom_safe`, `stream_cqsa_auto` and `auto_attention`
+  emit a `DeprecationWarning` pointing to it (they keep working).
+
 ## v2.2.2 (2026-09-17)
 
 * `stream_cqsa.place_inputs(*tensors)`: guardrail for a crowded device -- moves host tensors to the GPU

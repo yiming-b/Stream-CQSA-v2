@@ -87,6 +87,13 @@ def oom_hint(N: int, B: int, H: int, D: int, itemsize: int, device=None) -> str:
     return "; ".join(parts)
 
 
+def _deprecated_entry(name: str):
+    import warnings
+    warnings.warn(f"stream_cqsa.{name} is a legacy entry point; use stream_cqsa.attention(q, k, v, is_causal=...), "
+                  "which plans, falls back on out-of-memory, supports autograd and host or device inputs.",
+                  DeprecationWarning, stacklevel=3)
+
+
 def attention_oom_safe(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -110,6 +117,7 @@ def attention_oom_safe(
     permits moving Q/K/V to host memory on the fallback -- see the module
     docstring; without it, inputs that do not fit cannot be recovered.
     """
+    _deprecated_entry("attention_oom_safe")
     from .stable_stream import max_depth_for, stream_cqsa_forward
 
     if q.dim() != 4:
@@ -312,6 +320,7 @@ def stream_cqsa_auto(q, k, v, *, causal=False, scale=None, return_info=False,
     `return_info=True`; `info["lse"]` is required by `stream_cqsa_backward`,
     and `info["config"]` reports which rung ran).
     """
+    _deprecated_entry("stream_cqsa_auto")
     from .stable_stream import stream_cqsa_forward
 
     out_dtype = q.dtype
