@@ -18,23 +18,24 @@ def md(s): cells.append(nbf.v4.new_markdown_cell(s.strip("\n")))
 def code(s): cells.append(nbf.v4.new_code_cell(s.strip("\n")))
 
 md("""
-# Stream-CQSA v2 — every feature in one notebook
+# Stream-CQSA v2 — one function, and what is under it
 
 Stream-CQSA is **exact out-of-memory recovery for attention**: when a call does not fit,
 the pair set is decomposed over a cyclic quorum set into independent subproblems that run
 one at a time (or a few at a time, or on several devices) and are recomposed exactly.
 It defines no attention rule of its own; it reproduces whatever kernel it wraps.
 
-This notebook exercises every feature of the v2 package on a single GPU. A **memory cap**
-(`torch.cuda.set_per_process_memory_fraction`) plays the role of a smaller device so the
+**Part A is all a user needs: one function, `stream_cqsa.attention`, with the signature of
+`torch.nn.functional.scaled_dot_product_attention`.** It runs the normal kernel when the call fits and the exact
+decomposition when it does not, plans the configuration, recovers from out-of-memory, supports autograd, and takes
+host or device inputs. Part B shows the engine layer underneath, for kernel and systems developers.
+
+A **memory cap** (`torch.cuda.set_per_process_memory_fraction`) plays the role of a smaller device so the
 recovery paths trigger at sizes that run in seconds.
 
-Sections: 0 install and call · 1 setup · 2 the OOM boundary · 3 the engine's knobs (`itr`, `acc`, host residency,
-concurrency, quorum sets) · 4 autograd with independent forward/backward depths ·
-5 automatic configuration from a hardware description · 6 the developer kit (exactness +
-performance of any inner kernel) · 7 adapters: automatic conversion of FlexAttention kernels ·
-8 the classic CUDA kernel vs FlashAttention-2 · 9 the two engines on the two
-kernels (classic / wave × CUDA / Triton, and how `attention()` chooses) · 10 multi-device.
+Part A: 0 install and call · 1 setup · 2 when it does not fit · 3 optional arguments · 4 training ·
+5 estimate and calibrate · 6 engines and kernels.
+Part B: the engine and its trace · 7 developer kit · 8 adapters · 9 the kernel vs FlashAttention-2 · 10 multi-device.
 """)
 
 md("""
@@ -85,10 +86,10 @@ import torch, torch.nn.functional as F
 # Production kernels: the classic CUDA kernel (a causal and a non-causal build, csrc/ and csrc_nc/), the wave
 # kernel (native/, cqsa_native) and the Triton kernels; the package finds whichever are installed.
 import stream_cqsa
-from stream_cqsa.stable_stream import stream_cqsa_forward, stream_cqsa_backward, TraceRecorder
-from stream_cqsa.native_autograd import stream_cqsa_attn, StreamCQSAAttention
-from stream_cqsa.oom_fallback import attention_oom_safe
-from stream_cqsa.autoconfig import detect_hardware, hardware_from_dict, plan, calibrate, autotune, auto_attention, QUORUM_SETS
+from stream_cqsa.autoconfig import QUORUM_SETS                                       # the registered quorum sets (c = 3 ... 133)
+# engine layer, used in Part B only:
+from stream_cqsa.stable_stream import stream_cqsa_forward, TraceRecorder
+from stream_cqsa.autoconfig import hardware_from_dict, autotune
 from stream_cqsa.devkit import compare_kernels, quick_bench, Config, run_config, measure, reference_rows, sample_rows, accuracy_vs_fp64
 import stream_cqsa.interface as I
 dev = torch.device("cuda")
@@ -110,20 +111,18 @@ def cap(gib):
 """)
 
 md("""
-## 2. The OOM boundary, and the drop-in recovery
+## 2. When it does not fit
 
-`attention_oom_safe` runs the normal SDPA path and falls back to Stream-CQSA only when
-it raises out-of-memory. Under a 2 GiB cap a 512K-token call cannot hold Q/K/V + workspace on the
-device; the fallback streams them from the host (`release_inputs=True` lets it move device inputs
-out), tries each depth with the accumulator on the device and then in host memory, and returns the
-exact result. Deep depths carry a Python-side setup cost (the task list is built per subproblem,
-~0.25 s each at 512K, so itr=3 = 343 tasks costs a minute before the first kernel runs); the planner
-and `auto_attention` avoid that by preferring a larger quorum set at a lower depth.
+Nothing changes in the call. Here the device is described as 2 GiB (`hardware=`; without it the free memory is
+detected): SDPA cannot hold a 512K-token call there, `attention` plans a decomposition, streams the host inputs
+and returns the exact result. (The process cap is 3 GiB because allocator segments cached earlier in this
+notebook stay pinned by PyTorch's cuBLAS workspace; the plan is for the 2 GiB description.)
 """)
 code("""
+SMALL = {"cuda:0": "2GiB", "host": "128GiB"}
 N = 524_288
 q, k, v = make_qkv(N)                      # host-resident (1.5 GiB fp16)
-cap(2.0)                                   # a 2 GiB device: Q/K/V + output + workspace do not fit
+cap(2.0)
 held = []
 try:
     for t in (q, k, v):
@@ -131,65 +130,88 @@ try:
     out = F.scaled_dot_product_attention(*held, is_causal=True)
     print("SDPA fit?!")
 except torch.cuda.OutOfMemoryError as e:
-    print("SDPA under the cap: OutOfMemoryError ->", str(e)[:60], "...")
-held.clear(); gc.collect(); torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
+    print("SDPA on a 2 GiB device: OutOfMemoryError ->", str(e)[:60], "...")
+held.clear(); cap(3.0); torch.cuda.reset_peak_memory_stats()
 t0 = time.perf_counter()
-out = attention_oom_safe(q, k, v, causal=True, release_inputs=True)   # same signature and dtype as SDPA
+out, info = stream_cqsa.attention(q, k, v, is_causal=True, hardware=SMALL, return_info=True)
 torch.cuda.synchronize()
-print(f"attention_oom_safe: {time.perf_counter()-t0:.1f} s, peak {torch.cuda.max_memory_allocated()/2**30:.2f} GiB, "
-      f"out {tuple(out.shape)} {out.dtype}, rel.err vs float64 {fp64_error(out, q, k, v):.1e}")
+print(f"stream_cqsa.attention: {time.perf_counter()-t0:.1f} s, peak {torch.cuda.max_memory_allocated()/2**30:.2f} GiB, "
+      f"out {tuple(out.shape)} {out.dtype} on {out.device}, rel.err vs float64 {fp64_error(out, q, k, v):.1e}")
+print("what ran:", {k_: info.get(k_) for k_ in ("engine", "kernel", "itr", "c", "n_subproblems", "oom_retries")})
 del out
 """)
 
 md("""
-## 3. The engine's knobs
+### Inside a model: Q/K/V are already on the GPU
 
-`stream_cqsa_forward(q, k, v, itr=, c=, interest_set=, low_memory=, stream_from_host=, max_parallel=, shared_chunks=)`
-returns the fp32 output and an `info` dict (depth used, subproblem count, per-stage timings when traced).
+In an end-to-end LLM the attention inputs are activations that already sit on the device, and they may leave
+too little room for the attention itself. The call is still the same. When nothing fits next to Q/K/V,
+`attention` releases them to pinned host memory (the tensors you hold are rebound, so the device memory is
+really freed), streams from there, puts the **output on the GPU first**, and then brings Q/K/V back if room
+remains; otherwise they stay valid host tensors. `evict_inputs=` / `restore_inputs=` (`"auto"`, `True`,
+`False`) force or forbid either step. Here the device budget is described as 1.2 GiB while Q/K/V alone are
+0.75 GiB.
+""")
+code("""
+cap(40.0)                                                     # lift the previous section's cap: the restore step needs real room
+N = 262_144
+q, k, v = (t.to(dev) for t in make_qkv(N))                    # device-resident, as inside a model (0.75 GiB)
+ref = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+out, info = stream_cqsa.attention(q, k, v, is_causal=True, hardware={"cuda:0": "1.2GiB", "host": "64GiB"},
+                                  return_info=True, verbose=True)
+print()
+print("evicted:", info["inputs_evicted"], "| released on the GPU:", info["evict_released_gib"], "GiB",
+      "| output on", out.device, "| Q/K/V restored:", info["inputs_restored"], "-> q on", q.device)
+print(f"max |out - SDPA| relative: {((out.float()-ref.float()).norm()/ref.float().norm()).item():.1e}")
+del out, ref, q, k, v
+""")
 
-* `itr` — decomposition depth: `c**itr` subproblems of `N·(l/c)**itr` tokens (`"auto"` = plan from free memory; 0 = monolithic).
-* `(c, interest_set)` — the cyclic quorum set. Larger `c` at a lower depth gives the same subproblem size
-  as a smaller `c` at a higher depth with less pair work; every perfect difference set in `QUORUM_SETS` is valid.
-* `low_memory=True` (acc=CPU) — the fp32 accumulator lives in host memory; `stream_from_host=True` — Q/K/V too.
-* `max_parallel` — subproblems in flight; `shared_chunks=True` — contiguous chunk DMA instead of a row gather (itr=1).
+md("""
+## 3. Optional arguments of the same function
+
+Everything is a keyword of `attention`; none is needed. Pinning a setting turns that part of the planner off.
+
+| argument | meaning |
+|---|---|
+| `itr=` | decomposition depth: `c**itr` subproblems of `N*(l/c)**itr` tokens (default: planned; the monolithic call when it fits) |
+| `c=, interest_set=` | the cyclic quorum set, any entry of `stream_cqsa.autoconfig.QUORUM_SETS` (c = 3 ... 133) |
+| `accumulate_on_gpu=False` (with `low_memory=True`) | fp32 accumulator in host memory (the paper's acc=CPU) |
+| host tensors as inputs | Q/K/V streamed from host memory; device tensors stay on the device when a plan fits |
+| `max_parallel=` | subproblems in flight |
+| `kernel=` | `"auto"`, `"cuda"`, `"triton"`, `"wave-cuda"`, `"wave-triton"` (section 6) |
+| `bwd_itr=` | depth of the backward: `"auto"` (planned on its own), `"fwd"`, or an int |
+| `evict_inputs=`, `restore_inputs=` | device-resident Q/K/V: release them to host memory for the computation / bring them back after the output (`"auto"`, `True`, `False`) |
+| `hardware=` | a budget description `{"cuda:0": "10GiB", "host": "64GiB"}` instead of detection |
+| `verbose=True`, `return_plan=True`, `return_info=True`, `plan_only=True` | see what it decides and what ran |
 """)
 code("""
 cap(40.0)
 N = 262_144
 q, k, v = make_qkv(N)
 rows = sample_rows(N, 128); ref = reference_rows(q, k, v, rows, causal=True, scale=D**-0.5)
-print(f"{'configuration':>58} {'time s':>7} {'peak GiB':>9} {'subproblems':>11} {'rel.err':>8}")
-for label, kw in [
-    ("itr=1 acc=GPU, inputs on device",                dict(itr=1)),
-    ("itr=1 acc=GPU n_par=4",                           dict(itr=1, max_parallel=4)),
-    ("itr=2 acc=GPU",                                   dict(itr=2, max_parallel=2)),
-    ("c=13 itr=1 acc=GPU (13 subproblems of 4N/13)",    dict(itr=1, c=13, interest_set=QUORUM_SETS[13], max_parallel=2)),
-    ("c=31 itr=1 acc=GPU (31 subproblems of 6N/31)",    dict(itr=1, c=31, interest_set=QUORUM_SETS[31], max_parallel=2)),
-    ("itr=1 acc=CPU, Q/K/V on host, shared_chunks",     dict(itr=1, low_memory=True, stream_from_host=True, shared_chunks=True)),
-    ("itr='auto' (planner: monolithic fits here)",      dict(itr="auto")),
+print(f"{'attention(q, k, v, is_causal=True, ...)':>58} {'time s':>7} {'peak GiB':>9} {'subproblems':>11} {'rel.err':>8}")
+for label, host, kw in [
+    ("(nothing: planned; monolithic fits here)",         False, dict()),
+    ("itr=1",                                            False, dict(itr=1)),
+    ("itr=1, max_parallel=4",                            False, dict(itr=1, max_parallel=4)),
+    ("itr=2",                                            False, dict(itr=2)),
+    ("c=13, interest_set=QUORUM_SETS[13], itr=1",        False, dict(itr=1, c=13, interest_set=QUORUM_SETS[13])),
+    ("c=31, interest_set=QUORUM_SETS[31], itr=1",        False, dict(itr=1, c=31, interest_set=QUORUM_SETS[31])),
+    ("itr=1, accumulate_on_gpu=False, host inputs",      True,  dict(itr=1, low_memory=True, accumulate_on_gpu=False)),
 ]:
-    on_host = kw.get("stream_from_host", False)
-    qq, kk, vv = (q, k, v) if on_host else (q.to(dev), k.to(dev), v.to(dev))
+    qq, kk, vv = (q, k, v) if host else (q.to(dev), k.to(dev), v.to(dev))
     gc.collect(); torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats(); torch.cuda.synchronize()
-    t0 = time.perf_counter(); out, info = stream_cqsa_forward(qq, kk, vv, causal=True, allow_escalation=False, **kw); torch.cuda.synchronize()
-    err = accuracy_vs_fp64(out, q, k, v, causal=True, scale=D**-0.5, rows=rows, ref_rows=ref)["rel_fro"]
-    print(f"{label:>58} {time.perf_counter()-t0:7.3f} {torch.cuda.max_memory_allocated()/2**30:9.2f} {info.get('n_subproblems', 0):11d} {err:8.1e}")
+    t0 = time.perf_counter(); out, info = stream_cqsa.attention(qq, kk, vv, is_causal=True, return_info=True, **kw); torch.cuda.synchronize()
+    err = accuracy_vs_fp64(out.to(dev), q, k, v, causal=True, scale=D**-0.5, rows=rows, ref_rows=ref)["rel_fro"]
+    print(f"{label:>58} {time.perf_counter()-t0:7.3f} {torch.cuda.max_memory_allocated()/2**30:9.2f} {info.get('n_subproblems', 1):11d} {err:8.1e}")
     del out, qq, kk, vv
-""")
-code("""
-# Per-stage timings: trace one call (host accumulator, so all stages appear)
-tr = TraceRecorder(enabled=True, device=dev)
-out, info = stream_cqsa_forward(q, k, v, itr=1, causal=True, low_memory=True, stream_from_host=True, shared_chunks=True, trace=tr)
-print({s: f"{ms:.0f} ms" for s, ms in info["stage_totals_ms"].items()}, "| itr", info["itr"], "| subproblems", info["n_subproblems"])
-del out
 """)
 
 md("""
-## 4. Autograd, with independent forward and backward depths
+## 4. Training: gradients flow through the same call
 
-`stream_cqsa_attn` is a `torch.autograd.Function`. The backward decomposes on its own:
-`bwd_itr="auto"` (default) plans the backward's depth from free memory with the backward's own
-memory model, `"fwd"` reuses the forward's, an int pins it. Under a cap the two differ.
+When the inputs require gradients, `attention` is differentiable. The backward decomposes on its own
+(`bwd_itr="auto"`, planned from free memory with the backward's memory model), independently of the forward.
 """)
 code("""
 cap(6.0)
@@ -199,130 +221,30 @@ for fwd_itr, bwd_itr in [(1, "auto"), (1, "fwd"), (2, 1)]:
     q.grad = k.grad = v.grad = None
     gc.collect(); torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats(); torch.cuda.synchronize()
     t0 = time.perf_counter()
-    out = stream_cqsa_attn(q, k, v, causal=True, itr=fwd_itr, bwd_itr=bwd_itr)
+    out = stream_cqsa.attention(q, k, v, is_causal=True, itr=fwd_itr, bwd_itr=bwd_itr)
     out.float().sum().backward(); torch.cuda.synchronize()
-    print(f"fwd itr={fwd_itr} bwd_itr={bwd_itr!r:6}: {time.perf_counter()-t0:6.2f} s, peak {torch.cuda.max_memory_allocated()/2**30:.2f} GiB, "
+    print(f"attention(..., itr={fwd_itr}, bwd_itr={bwd_itr!r:6}): {time.perf_counter()-t0:6.2f} s, peak {torch.cuda.max_memory_allocated()/2**30:.2f} GiB, "
           f"|dq| {q.grad.float().norm():.3f} |dk| {k.grad.float().norm():.3f} |dv| {v.grad.float().norm():.3f}")
-# explicit backward with its own planning
-o, info = stream_cqsa_forward(q.detach(), k.detach(), v.detach(), itr=1, causal=True)
-binfo = {}
-dq, dk, dv = stream_cqsa_backward(q.detach(), k.detach(), v.detach(), torch.ones_like(q).detach(), o.to(q.dtype), info["lse"], causal=True, bwd_info=binfo)
-print("explicit backward itr='auto':", binfo.get("plan_reason"))
-del out, o, dq, dk, dv, info, binfo; q.grad = k.grad = v.grad = None   # drop device tensors (lse) before the next cap: a
-gc.collect(); torch.cuda.empty_cache()                                    # live tensor pins its whole cached segment
+del out; q.grad = k.grad = v.grad = None; del q, k, v
+gc.collect(); torch.cuda.empty_cache()
 cap(40.0)
 """)
 
 md("""
-## 5. Automatic configuration from a hardware description
+## 5. Asking before running, and fitting the cost model to this GPU
 
-`plan()` enumerates monolithic / every `(c, itr)` / accumulator placement / host residency / concurrency /
-device count, predicts memory with the engine's estimators and time with a calibratable cost model,
-keeps what fits the budget and applies one rule: *use the budget unless a configuration is both faster
-and smaller* (the Pareto frontier of time and memory, fastest point). Describe the hardware as a dict
-of budgets, or detect it.
+`estimate` is the dry run: does the monolithic call fit, what would be chosen, how much device and host memory,
+how long. `calibrate` times a few kernels once per GPU model (about a minute) and saves the fitted cost model
+to `~/.cache/stream_cqsa`, which every later `attention` / `estimate` call on that GPU uses.
 """)
 code("""
-hw = detect_hardware(); print("detected:", hw.summary())
-for spec in [{"cuda:0": "40GiB", "host": "256GiB"},
-             {"cuda:0": "3GiB", "host": "256GiB"},
-             {"cuda:0": "80GiB", "cuda:1": "80GiB", "cuda:2": "80GiB", "cuda:3": "80GiB", "host": "500GiB", "link_gbs": 200}]:
-    h = hardware_from_dict(spec)
-    for N_, d in [(262_144, "fwd"), (1_048_576, "fwd"), (1_048_576, "bwd"), (16_777_216, "fwd")]:
-        p = plan(N=N_, hardware=h, direction=d)
-        print(f"{str(spec)[:52]:52s} N={N_:>9} {d}: {p.name():55s} est {p.est_time_s:8.1f} s, {p.est_peak_gib:5.1f} GiB/device")
-""")
-code("""
-# Calibrate the cost model on this GPU (~1 min), then let auto_attention plan and run under a cap.
-cm = calibrate(hw, N=65536)
-# The planner plans for the 2 GiB device described below. The process cap is 3 GiB because a 1 GiB
-# allocator segment cached earlier in this notebook stays pinned by PyTorch's cuBLAS workspace (8 MiB);
-# a real 2 GiB device would never have created that segment.
-cap(3.0)
-q, k, v = make_qkv(524_288)
-out, p = auto_attention(q, k, v, causal=True, hardware=hardware_from_dict({"cuda:0": "2GiB", "host": "256GiB"}), model=cm, verbose=True, allow_escalation=False)
-torch.cuda.synchronize()
-print(f"-> ran {p.name()}: peak {torch.cuda.max_memory_allocated()/2**30:.2f} GiB, rel.err {fp64_error(out, q, k, v):.1e}")
-del out; cap(40.0)
-""")
-code("""
-# autotune: measure the top candidates instead of trusting the model (use when the call will be repeated)
-p = autotune(N=131_072, hardware=hardware_from_dict({"cuda:0": "40GiB", "host": "256GiB"}), max_candidates=4, verbose=True)
-print("autotune ->", p.name())
+_ = stream_cqsa.estimate(N=1_048_576, hardware={"cuda:0": "3GiB", "host": "256GiB"})    # a small device
+_ = stream_cqsa.calibrate(N=65536)                                                       # fit the cost model to this GPU
+_ = stream_cqsa.estimate(N=16_777_216)                                                   # this machine, now with the fitted model
 """)
 
 md("""
-## 6. Developer kit: any inner kernel vs its monolithic call
-
-`compare_kernels(inner_fn, mono_fn)` plugs a kernel into the framework and reports whether the decomposed
-result matches the monolithic one (bit-identical / exact within rounding / NOT exact), the error of both
-against float64, and time + peak memory of both. `quick_bench` sweeps configurations on one input set.
-""")
-code("""
-from stream_cqsa.stable_stream import local_stats_flash, local_stats_torch
-rep = compare_kernels(local_stats_flash, N=131072, itr=1)          # the native kernel vs flash-attn
-rep = compare_kernels(local_stats_torch, N=16384, itr=2)           # the dense fp32 torch fallback (differential test)
-""")
-code("""
-res = quick_bench(N=131072, budget_gib=8.0, configs=[Config(mode="mono"), Config(mode="mono", mono_backend="sdpa"),
-      Config(itr=1, acc="gpu", n_par=2), Config(itr=1, c=13, interest_set=QUORUM_SETS[13], acc="gpu", n_par=2),
-      Config(itr=1, acc="cpu", stream_from_host=True), Config(itr=2, acc="gpu", n_par=4)], reps=2, acc_rows=128)
-""")
-
-md("""
-## 7. Adapters: automatic conversion of a monolithic kernel
-
-Any attention that torch FlexAttention can express becomes a Stream-CQSA inner kernel via `flex_inner`:
-the CQS pair set becomes a block mask, `return_lse` supplies the row statistics, and — the one thing a
-conversion must get right — the engine hands the kernel the gather index so position-dependent
-`score_mod`s see **global** positions. ALiBi and a sliding window come out exact; the local-index
-mistake is caught.
-""")
-code("""
-from stream_cqsa.adapters import flex_inner, dense_inner, sdpa_masked
-from torch.nn.attention.flex_attention import flex_attention, create_block_mask
-fa = torch.compile(flex_attention, dynamic=False)
-def alibi(score, b, h, q_idx, kv_idx): return score - 0.05 * (q_idx - kv_idx).abs()
-mono_alibi = lambda q, k, v: fa(q, k, v, score_mod=alibi, scale=D**-0.5)
-print("ALiBi, positions remapped (correct):");      compare_kernels(flex_inner(score_mod=alibi), mono_fn=mono_alibi, N=16384, itr=1, causal=False, reference=None)
-print("\\nALiBi, local positions (the bug):");        compare_kernels(flex_inner(score_mod=alibi, global_positions=False), mono_fn=mono_alibi, N=16384, itr=1, causal=False, reference=None)
-def window(b, h, q_idx, kv_idx): return (q_idx - kv_idx) <= 2048
-def mono_win(q, k, v):
-    bm = create_block_mask(lambda b, h, qi, ki: (ki <= qi) & window(b, h, qi, ki), None, None, q.shape[2], q.shape[2], device=q.device)
-    return fa(q, k, v, block_mask=bm, scale=D**-0.5)
-print("\\nsliding window 2048, causal:");             compare_kernels(flex_inner(extra_mask_mod=window), mono_fn=mono_win, N=16384, itr=1, causal=True, reference=None)
-print("\\nSDPA with a dense mask and no lse (second lse pass):"); compare_kernels(dense_inner(sdpa_masked, returns_lse=False), N=8192, itr=1)
-""")
-
-md("""
-## 8. The classic CUDA kernel vs FlashAttention-2
-
-The classic CUDA kernel is FlashAttention-2 with a per-tile CQS verdict that costs a register AND, a
-straight-line steady loop over live tiles only, and compile-time CQS on/off. With CQS off it is as fast as
-FlashAttention-2; with CQS on it skips the fully masked tiles of a subproblem. Causal and non-causal calls
-use two builds of it (`docs/kernel_technical_note.md`). The wave kernel of section 9 runs several such
-subproblems per launch.
-""")
-code("""
-from stream_cqsa.interface import flash_attn_func_cqs_group_bits, flash_attn_func, cqs_block_summaries
-from stream_cqsa.reference import group_bits_for_path
-from flash_attn import flash_attn_func as fa2
-def ms(fn, it=10):
-    for _ in range(3): fn()
-    torch.cuda.synchronize(); e0, e1 = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-    e0.record(); [fn() for _ in range(it)]; e1.record(); torch.cuda.synchronize(); return e0.elapsed_time(e1) / it
-ids, bits_np = group_bits_for_path(131072, (0,), sorted_gather=True); L = len(bits_np)
-qq, kk, vv = (torch.randn(1, L, H, D, device=dev, dtype=torch.float16) for _ in range(3))
-bits = torch.as_tensor(bits_np, device=dev); bo, ba = (t.cuda() for t in cqs_block_summaries(bits))
-print(f"one itr=1 subproblem, L={L} (3N/7 of N=131072), causal, ms per call:")
-print(f"  FlashAttention-2 monolithic on L      : {ms(lambda: fa2(qq, kk, vv, causal=True)):.2f}")
-print(f"  classic CUDA kernel, CQS off (plain)  : {ms(lambda: flash_attn_func(qq, kk, vv, causal=True)):.2f}")
-print(f"  classic CUDA kernel, CQS on (subproblem): {ms(lambda: flash_attn_func_cqs_group_bits(qq, kk, vv, bits, causal=True, cqs_blk_or=bo, cqs_blk_and=ba)):.2f}  (22% of tiles are skipped as fully masked)")
-del qq, kk, vv
-""")
-
-md("""
-## 9. Two engines, two kernels: classic / wave × CUDA / Triton
+## 6. Two engines, two kernels, one argument
 
 Since v2.2 every forward can run on either **engine** and either **kernel**:
 
@@ -389,6 +311,95 @@ os.environ["CQSA_FORWARD"] = "triton"
 out, info = stream_cqsa_forward(qd, kd, vd, itr=1, causal=True, allow_escalation=False)
 print(f"classic engine on Triton: {info['n_subproblems']} subproblems, rel.err {accuracy_vs_fp64(out, q, k, v, causal=True, scale=D**-0.5, rows=rows, ref_rows=ref)['rel_fro']:.1e}")
 os.environ.pop("CQSA_FORWARD"); del out, qd, kd, vd
+""")
+
+md("""
+---
+# Part B. Under the hood (for kernel and systems developers)
+
+Nothing below is needed to use the package. These are the engine-level interfaces `attention` is built on:
+the streaming engine and its per-stage trace, the measuring planner, the developer kit for plugging in
+another inner kernel, the adapters, the kernel itself against FlashAttention-2, and multi-device execution.
+""")
+code("""
+# The engine under attention(): per-stage timings of one host-accumulator call, and the measuring planner
+q, k, v = make_qkv(262_144)
+tr = TraceRecorder(enabled=True, device=dev)
+out, info = stream_cqsa_forward(q, k, v, itr=1, causal=True, low_memory=True, stream_from_host=True, shared_chunks=True, trace=tr)
+print({s_: f"{ms:.0f} ms" for s_, ms in info["stage_totals_ms"].items()}, "| itr", info["itr"], "| subproblems", info["n_subproblems"])
+del out
+p = autotune(N=131_072, hardware=hardware_from_dict({"cuda:0": "40GiB", "host": "256GiB"}), max_candidates=4, verbose=True)
+print("autotune ->", p.name())
+""")
+
+md("""
+## 7. Developer kit: any inner kernel vs its monolithic call
+
+`compare_kernels(inner_fn, mono_fn)` plugs a kernel into the framework and reports whether the decomposed
+result matches the monolithic one (bit-identical / exact within rounding / NOT exact), the error of both
+against float64, and time + peak memory of both. `quick_bench` sweeps configurations on one input set.
+""")
+code("""
+from stream_cqsa.stable_stream import local_stats_flash, local_stats_torch
+rep = compare_kernels(local_stats_flash, N=131072, itr=1)          # the native kernel vs flash-attn
+rep = compare_kernels(local_stats_torch, N=16384, itr=2)           # the dense fp32 torch fallback (differential test)
+""")
+code("""
+res = quick_bench(N=131072, budget_gib=8.0, configs=[Config(mode="mono"), Config(mode="mono", mono_backend="sdpa"),
+      Config(itr=1, acc="gpu", n_par=2), Config(itr=1, c=13, interest_set=QUORUM_SETS[13], acc="gpu", n_par=2),
+      Config(itr=1, acc="cpu", stream_from_host=True), Config(itr=2, acc="gpu", n_par=4)], reps=2, acc_rows=128)
+""")
+
+md("""
+## 8. Adapters: automatic conversion of a monolithic kernel
+
+Any attention that torch FlexAttention can express becomes a Stream-CQSA inner kernel via `flex_inner`:
+the CQS pair set becomes a block mask, `return_lse` supplies the row statistics, and — the one thing a
+conversion must get right — the engine hands the kernel the gather index so position-dependent
+`score_mod`s see **global** positions. ALiBi and a sliding window come out exact; the local-index
+mistake is caught.
+""")
+code("""
+from stream_cqsa.adapters import flex_inner, dense_inner, sdpa_masked
+from torch.nn.attention.flex_attention import flex_attention, create_block_mask
+fa = torch.compile(flex_attention, dynamic=False)
+def alibi(score, b, h, q_idx, kv_idx): return score - 0.05 * (q_idx - kv_idx).abs()
+mono_alibi = lambda q, k, v: fa(q, k, v, score_mod=alibi, scale=D**-0.5)
+print("ALiBi, positions remapped (correct):");      compare_kernels(flex_inner(score_mod=alibi), mono_fn=mono_alibi, N=16384, itr=1, causal=False, reference=None)
+print("\\nALiBi, local positions (the bug):");        compare_kernels(flex_inner(score_mod=alibi, global_positions=False), mono_fn=mono_alibi, N=16384, itr=1, causal=False, reference=None)
+def window(b, h, q_idx, kv_idx): return (q_idx - kv_idx) <= 2048
+def mono_win(q, k, v):
+    bm = create_block_mask(lambda b, h, qi, ki: (ki <= qi) & window(b, h, qi, ki), None, None, q.shape[2], q.shape[2], device=q.device)
+    return fa(q, k, v, block_mask=bm, scale=D**-0.5)
+print("\\nsliding window 2048, causal:");             compare_kernels(flex_inner(extra_mask_mod=window), mono_fn=mono_win, N=16384, itr=1, causal=True, reference=None)
+print("\\nSDPA with a dense mask and no lse (second lse pass):"); compare_kernels(dense_inner(sdpa_masked, returns_lse=False), N=8192, itr=1)
+""")
+
+md("""
+## 9. The classic CUDA kernel vs FlashAttention-2
+
+The classic CUDA kernel is FlashAttention-2 with a per-tile CQS verdict that costs a register AND, a
+straight-line steady loop over live tiles only, and compile-time CQS on/off. With CQS off it is as fast as
+FlashAttention-2; with CQS on it skips the fully masked tiles of a subproblem. Causal and non-causal calls
+use two builds of it (`docs/kernel_technical_note.md`). The wave kernel of section 9 runs several such
+subproblems per launch.
+""")
+code("""
+from stream_cqsa.interface import flash_attn_func_cqs_group_bits, flash_attn_func, cqs_block_summaries
+from stream_cqsa.reference import group_bits_for_path
+from flash_attn import flash_attn_func as fa2
+def ms(fn, it=10):
+    for _ in range(3): fn()
+    torch.cuda.synchronize(); e0, e1 = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    e0.record(); [fn() for _ in range(it)]; e1.record(); torch.cuda.synchronize(); return e0.elapsed_time(e1) / it
+ids, bits_np = group_bits_for_path(131072, (0,), sorted_gather=True); L = len(bits_np)
+qq, kk, vv = (torch.randn(1, L, H, D, device=dev, dtype=torch.float16) for _ in range(3))
+bits = torch.as_tensor(bits_np, device=dev); bo, ba = (t.cuda() for t in cqs_block_summaries(bits))
+print(f"one itr=1 subproblem, L={L} (3N/7 of N=131072), causal, ms per call:")
+print(f"  FlashAttention-2 monolithic on L      : {ms(lambda: fa2(qq, kk, vv, causal=True)):.2f}")
+print(f"  classic CUDA kernel, CQS off (plain)  : {ms(lambda: flash_attn_func(qq, kk, vv, causal=True)):.2f}")
+print(f"  classic CUDA kernel, CQS on (subproblem): {ms(lambda: flash_attn_func_cqs_group_bits(qq, kk, vv, bits, causal=True, cqs_blk_or=bo, cqs_blk_and=ba)):.2f}  (22% of tiles are skipped as fully masked)")
+del qq, kk, vv
 """)
 
 md("""

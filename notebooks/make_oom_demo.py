@@ -31,7 +31,8 @@ quorum set and accumulator placement) from the capped budget automatically.
 code("""
 import os, gc, time, torch, torch.nn.functional as F
 os.environ.setdefault("CQSA_CUDA_MODULE", "cqsa_cuda_next_v11"); os.environ.setdefault("CQSA_CUDA_MODULE_NONCAUSAL", "cqsa_cuda_next_v9")
-from stream_cqsa.autoconfig import auto_attention, hardware_from_dict, detect_hardware
+import stream_cqsa
+from stream_cqsa.autoconfig import hardware_from_dict, detect_hardware
 from stream_cqsa.devkit import reference_rows, sample_rows, accuracy_vs_fp64
 import stream_cqsa.interface as I
 dev = torch.device("cuda"); B, H, D = 1, 8, 64
@@ -67,7 +68,7 @@ for N in Ns:
     # Stream-CQSA: planner on the capped budget, inputs streamed from the host when it decides so
     plan = {}
     def cqsa():
-        out, p = auto_attention(q, k, v, causal=True, hardware=hw, allow_escalation=True); plan["p"] = p; return out
+        out, p = stream_cqsa.attention(q, k, v, is_causal=True, hardware=hw, return_plan=True); plan["p"] = p; return out
     oc, tc, mc, ec = run(cqsa)
     errb = accuracy_vs_fp64(ob, q, k, v, causal=True, scale=D**-0.5, rows=rows_idx, ref_rows=ref)["rel_fro"] if ob is not None else float("nan")
     errc = accuracy_vs_fp64(oc, q, k, v, causal=True, scale=D**-0.5, rows=rows_idx, ref_rows=ref)["rel_fro"] if oc is not None else float("nan")
