@@ -99,3 +99,29 @@ def test_training_through_eviction():
     F.scaled_dot_product_attention(*(t * 1.0 for t in leaves), is_causal=True).backward(do)
     for g_, t in zip(got, leaves):
         assert _rel(g_, t.grad) < 5e-3
+
+
+@cuda
+def test_forced_eviction_on_the_monolithic_path_returns_to_the_device():
+    import stream_cqsa
+    q, k, v = _qkv(8192)
+    ref = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+    out, info = stream_cqsa.attention(q, k, v, is_causal=True, evict_inputs=True, return_info=True)
+    assert info["engine"] == "monolithic" and info["inputs_evicted"]
+    assert out.is_cuda and info["inputs_restored"] and q.is_cuda                # was: output returned in host memory
+    assert _rel(out, ref) < 2e-3
+
+
+@cuda
+def test_restore_judges_room_under_a_memory_fraction_cap():
+    import stream_cqsa
+    q, k, v = _qkv()
+    total = torch.cuda.get_device_properties(0).total_memory
+    used = torch.cuda.memory_allocated(0)
+    torch.cuda.set_per_process_memory_fraction(min(1.0, (used + 3 * GIB) / total), 0)
+    try:
+        out, info = stream_cqsa.attention(q, k, v, is_causal=True, hardware=TIGHT, return_info=True)
+    finally:
+        torch.cuda.set_per_process_memory_fraction(1.0, 0)
+    # a reserve of 10% of the PHYSICAL device (8 GiB on an 80 GB card) never left room under a 3 GiB cap
+    assert info["inputs_evicted"] and info["inputs_restored"] and q.is_cuda and out.is_cuda

@@ -10,7 +10,7 @@ in this package (stream_cqsa_forward, stream_cqsa_attn, native_wave, distributed
 engine layer for kernel and systems developers; attention_oom_safe / stream_cqsa_auto / auto_attention
 are legacy entry points kept for old code.
 """
-__version__ = "2.2.2"
+__version__ = "2.2.3"
 
 from .stable_stream import (
     stream_cqsa_forward,

@@ -644,6 +644,19 @@ def estimate_peak_bytes(N: int, itr: int, *, B: int, H: int, D: int, itemsize: i
     return int(floor + transient)
 
 
+def effective_total_bytes(device) -> int:
+    """Device capacity as the allocator will grant it: the physical total times the
+    torch.cuda.set_per_process_memory_fraction cap (the whole device when none is set)."""
+    idx = device.index if isinstance(device, torch.device) else device
+    if idx is None or isinstance(idx, str):
+        idx = torch.cuda.current_device()
+    try:
+        frac = torch.cuda.get_per_process_memory_fraction(int(idx))
+    except Exception:
+        frac = 1.0
+    return int(min(frac, 1.0) * torch.cuda.get_device_properties(int(idx)).total_memory)
+
+
 def effective_free_bytes(device) -> int:
     """
     Free device memory as the allocator will actually grant it: the driver's

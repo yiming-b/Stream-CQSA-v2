@@ -232,22 +232,28 @@ def _evict_inputs(tensors, grad: bool, vb: bool):
     return hosts, state
 
 
-def _restore_inputs(state, mode, vb: bool, reserve_fraction: float = 0.10) -> bool:
+def _restore_inputs(state, mode, vb: bool, reserve_fraction: float = 0.10, budget_bytes: Optional[int] = None) -> bool:
     """After the output is in place: bring Q/K/V back to the device if there is room (mode "auto"),
     always try (True) or never (False). The output has priority, so this runs last. Tensors that
-    do not fit stay in host memory (``t.device`` tells the caller where each one is)."""
-    from .stable_stream import effective_free_bytes
+    do not fit stay in host memory (``t.device`` tells the caller where each one is).
+
+    Room is judged on the memory this process may use, not the physical device: the free memory
+    under a set_per_process_memory_fraction cap, less ``reserve_fraction`` of the capped capacity,
+    and within ``budget_bytes`` (what a ``hardware=`` budget leaves after the output) when given.
+    A reserve of the physical total never restored anything under a small cap or budget."""
+    from .stable_stream import effective_free_bytes, effective_total_bytes
     dev = state["device"]
     if mode is False:
         state["restored"] = False
         return False
     ok = True
+    left = budget_bytes
     for t, stride in zip(state["tensors"], state["strides"]):
         if t.device == dev:
             continue
         need = t.numel() * t.element_size()
-        total = torch.cuda.get_device_properties(dev).total_memory
-        if mode == "auto" and need > effective_free_bytes(dev) - reserve_fraction * total:
+        room = effective_free_bytes(dev) - reserve_fraction * effective_total_bytes(dev)
+        if mode == "auto" and (need > room or (left is not None and need > left)):
             ok = False
             continue
         try:
@@ -255,6 +261,8 @@ def _restore_inputs(state, mode, vb: bool, reserve_fraction: float = 0.10) -> bo
             d.copy_(t.data, non_blocking=True)
             torch.cuda.synchronize(dev)
             t.data = d
+            if left is not None:
+                left -= need
         except Exception as exc:                                     # noqa: BLE001
             if not _is_oom(exc):
                 raise
@@ -305,6 +313,7 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
               allow_distributed=False, out_bytes_per_el=out_el, **pkw)
     if plan_only:
         return p
+    out = None
     try:
         out, info = _run(q, k, v, p, is_causal=is_causal, scale=scale, direction=direction, on_cuda=on_cuda, out_el=out_el,
                          overrides=overrides, kernel=kernel, verbose=verbose, vb=vb, evict=evict, ev=ev,
@@ -312,8 +321,13 @@ def _attention(q, k, v, attn_mask, dropout_p, is_causal, scale, enable_gqa, *, v
     finally:
         evicted = ev["state"]
         if evicted is not None and evicted["restored"] is None:
+            # a hardware= budget describes the whole allowance: Q/K/V return within what the output leaves of it
+            budget = None if hardware is None else next(
+                (d.budget_bytes for d in hw.devices if torch.device(d.name) == evicted["device"]), None)
+            if budget is not None and out is not None and out.is_cuda:
+                budget -= out.numel() * out.element_size()
             try:
-                _restore_inputs(evicted, restore, vb)               # the output is delivered first; Q/K/V only if room remains
+                _restore_inputs(evicted, restore, vb, budget_bytes=budget)   # the output is delivered first; Q/K/V only if room remains
             except Exception:                                        # noqa: BLE001
                 pass
     if evicted is not None:
@@ -339,7 +353,7 @@ def _run(q, k, v, p, *, is_causal, scale, direction, on_cuda, out_el, overrides,
         qd, kd, vd = ((t if on_cuda else t.to("cuda", non_blocking=True)) for t in (q, k, v))
         try:
             out = _TRUE_SDPA(qd, kd, vd, is_causal=bool(is_causal), scale=scale)
-            out = out if on_cuda else out.to(q.device)
+            out = out if out.device == out_device else out.to(out_device)     # evicted inputs: the caller's device
             return out, {"engine": "monolithic", "kernel": "sdpa", "itr": 0, "n_subproblems": 1}
         except Exception as exc:                                     # noqa: BLE001
             if not _is_oom(exc):

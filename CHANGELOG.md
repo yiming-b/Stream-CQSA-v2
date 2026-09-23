@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.2.3 (2026-09-23)
 
 * One entry point: `stream_cqsa.attention` is documented as the function to use (README table, package
   docstring, notebooks rewritten around it with the engine layer in a separate part); it gains `bwd_itr=`;
@@ -23,6 +23,13 @@
   4,096-subproblem cap (c=133, itr=3: 2.35 M subproblems, which stalled in task construction). The fallback
   is now the most frugal enumerated configuration.
 * Host copies made by `attention` are stored token-major, so the streaming engine no longer re-copies them.
+* Fix (eviction): restoring Q/K/V judged the free room against a reserve of 10% of the PHYSICAL device, so
+  under `torch.cuda.set_per_process_memory_fraction` or a `hardware=` budget it never restored; room is now
+  judged on the memory the process may use and, with `hardware=`, within what the budget leaves after the
+  output. A forced eviction (`evict_inputs=True`) on a call that then ran monolithically returned the output
+  in host memory; it now goes to the caller's device.
+* Notebooks re-executed on an A100 around the one entry point, with an in-model eviction demo (0.75 GiB
+  released on the GPU, output delivered on the GPU, Q/K/V restored).
 
 ## v2.2.2 (2026-09-17)
 
