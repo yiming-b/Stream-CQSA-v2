@@ -1246,7 +1246,7 @@ only the corrected runs remain.
 
 ### Corrected paper re-run: interim results (small, large, xl, accuracy done; mid running)
 
-A100-SXM4-80GB, fp16, causal, B=1 H=8 D=64, auto* (itr >= 1), per-measurement isolation.
+A100 80GB PCIe (corrected 2026-09-23: every job log of this re-run names the PCIe card; this line first said A100-SXM4-80GB), fp16, causal, B=1 H=8 D=64, auto* (itr >= 1), per-measurement isolation. Final tables: `results/paper_rerun/`.
 `next/bench/paper_tables.py` prints the full tables. Highlights (native kernel set):
 
 | N | FA-2 fwd | Stream-CQSA fwd (acc=GPU) | FA-2 fwd+bwd | Stream-CQSA fwd+bwd (acc=GPU) |

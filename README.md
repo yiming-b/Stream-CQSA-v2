@@ -222,6 +222,26 @@ Reproduce: `sbatch slurm/profile_sweep_<kernel>.slurm` for cuda / triton / wave_
 (one gpu-test job each, `--constraint="sxm&gpu80"` so that all four land on the same GPU model),
 then `python benchmarks/profile_sweep.py fit --out results/profile_sweep`.
 
+## Paper re-run (A100 80GB PCIe, `results/paper_rerun/`)
+
+The paper's single-GPU experiments re-run with the v2 engine (B=1 H=8 D=64, causal, fp16 / bf16, 262K-16.8M
+tokens, automatic depth with a floor of 1, every measurement in its own process). Baselines run on
+device-resident Q/K/V; Stream-CQSA streams Q/K/V from host memory (acc=GPU / acc=CPU = where the fp32
+accumulator lives). Native CUDA kernel, fp16 (time / peak device memory; ratio = Stream-CQSA's faster arm
+over FlashAttention-2):
+
+| N | FA-2 fwd | Stream-CQSA fwd | ratio | FA-2 fwd+bwd | Stream-CQSA fwd+bwd | ratio |
+|---|---|---|---|---|---|---|
+| 1.0M | 7.7 s / 5.0 GiB | 11.2 s / 6.5 GiB | 1.45x | 24.9 s / 10.1 GiB | 52.1 s / 13.6 GiB | 2.10x |
+| 4.2M | 128.4 s / 20.1 GiB | 153.2 s / 25.9 GiB | 1.19x | 405.1 s / 40.3 GiB | 799.2 s / 46.5 GiB | 1.97x |
+| 8.4M | 534.2 s / 40.3 GiB | 595.6 s / 51.8 GiB | 1.12x | not run (> 79.3 GiB) | 3189.8 s / 44.8 GiB (acc=CPU) | only Stream-CQSA |
+| 16.8M | not run (> 79.3 GiB) | 2536.2 s / 32.0 GiB (acc=CPU) | only Stream-CQSA | not run | 14353.0 s / 38.4 GiB (acc=CPU) | only Stream-CQSA |
+
+Full tables (both dtypes, SDPA mem-efficient, accuracy against float64, the Triton kernel set as its own
+table, not-run reasons): `results/paper_rerun/tables_native.md`, `tables_triton.md`; regenerate with
+`python results/paper_rerun/make_tables.py`. The forward+backward cost (~2x) is the v11 backward kernel
+this release ships; the Triton backward is already faster (732 s at 4.2M).
+
 ## License
 
 BSD-3-Clause (see `LICENSE`); vendored FlashAttention-2 and CUTLASS notices in `third_party/`.
