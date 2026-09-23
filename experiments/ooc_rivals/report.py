@@ -15,18 +15,44 @@ def load(out_dir):
     return best
 
 
+DAG = " \u2020"
+
+
+def v1(r):
+    return r.get("harness", "v1") == "v1"
+
+
 def fmt_time(r):
     if r is None: return "-"
-    if r["status"] != "ok": return r["status"].upper()
+    mark = "\u2020" if v1(r) else ""
+    if r["status"] != "ok":
+        fr = r.get("failed_rep")
+        extra = f" (cold ok {r['cold_s']:.0f}s, warm rep {fr})" if fr and r.get("cold_s") else ""
+        return r["status"].upper() + extra + mark
     t = r.get("warm_s") or r.get("cold_s")
-    return f"{t:.1f}s ({r['peak_alloc_gib']:.1f}GiB)"
+    return f"{t:.1f}s ({r['peak_alloc_gib']:.1f}GiB){mark}"
+
+
+def t_of(r):
+    return (r.get("warm_s") or r.get("cold_s")) if r and r["status"] == "ok" else None
+
+
+def verdict(tc, tr, tol=0.05):
+    if tc is None and tr is None: return "neither completes"
+    if tc is None: return "rival only"
+    if tr is None: return "only Stream-CQSA completes"
+    x = tc / tr
+    return f"{x:.2f}x " + ("tie" if abs(x - 1) <= tol else ("Stream-CQSA faster" if x < 1 else "Stream-CQSA slower"))
 
 
 def choices_str(r):
     ch = r.get("choices") or {}
     if r["method"] == "cqsa_auto":
         info = ch.get("info") or {}
-        return f"{ch.get('plan', '?')}; engine {info.get('engine')}, kernel {info.get('kernel')}, itr {info.get('itr')}, retries {r.get('retries')}"
+        s_ = f"{ch.get('plan', '?')}; engine {info.get('engine')}, kernel {info.get('kernel')}, itr {info.get('itr')}, retries {r.get('retries')}"
+        if r["status"] != "ok" and r.get("error_where"):
+            s_ += f"; failed at {r['error_where'][-1]}"
+        return s_
     parts = []
     for d_, c in ch.items():
         parts.append(f"{d_}: q{c.get('tile_q')}/k{c.get('tile_k')} {c.get('traversal')}" + (f" probe {c.get('probe_s'):.2f}s" if c.get("probe_s") else ""))
@@ -41,8 +67,31 @@ def report(out_dir):
          "all methods start from host-resident Q/K/V (and dO) and end with host outputs / gradients; the device budget is the "
          "allocator cap and the planner's device description; median of 3 warm runs after one cold run (cold includes JIT, "
          "probing and planning). \"bwd\" = forward with its saved state + backward. Node/GPU per row in the JSONL.\n"]
-    gpus = sorted({r.get("gpu", "?") for r in best.values()})
+    gpus = sorted({r["gpu"] for r in best.values() if r.get("gpu")})
     L.append(f"GPUs used: {', '.join(gpus)}.\n")
+    nv1 = sum(1 for r in best.values() if v1(r)); nv2 = len(best) - nv1
+    L.append(f"Harness: {nv2} cells from harness v2 (one timed call per method, native host layouts prepared untimed; see "
+             f"`bench.py`), {nv1} cells marked \u2020 from harness v1 (grid jobs 13952418-25: inputs head-major, each method paid "
+             "a host transpose inside its timed region, <0.5% of its time -- the rival's pack_host_s phase is 0.54 s of 132 s at 4M; "
+             + ("the v1 FA-2 forward rows, which ran the kernel twice inside the timed region, and the v1 4M backward rows, which died "
+                "of host OOM, are all superseded by v2 rows)." if not any(v1(r) and ((k[0] == "fa2" and k[2] == "fwd") or (k[1] >= 4194304 and k[2] == "bwd"))
+                                                                  for k, r in best.items()) else "some v1 FA-2 forward / 4M backward rows are not yet superseded).") + "\n")
+    # 0. verdict per matched case
+    rivals = ("fa2", "rect_ooc", "rect_ooc_adaptive")
+    L.append("\n## Stream-CQSA auto versus the best completed rival\n\nSame budget, direction and N; the best rival is the fastest "
+             "completed of FA-2 resident (transfer-inclusive), rect. OOC fixed and adaptive (warm times). Ratio = Stream-CQSA time / rival "
+             "time (< 1: Stream-CQSA faster); tie = within 5%. No ratio against an OOM.\n")
+    L.append("| budget | dir | N | Stream-CQSA auto | best rival | vs best rival | FA-2 resident | vs FA-2 |\n|---|---|---|---|---|---|---|---|")
+    for b in budgets:
+        for d_ in dirs:
+            for N in Ns:
+                rc = best.get(("cqsa_auto", N, d_, b))
+                if rc is None: continue
+                done = [(t_of(best.get((m, N, d_, b))), m) for m in rivals if t_of(best.get((m, N, d_, b)))]
+                tb, mb = min(done) if done else (None, None)
+                tf = t_of(best.get(("fa2", N, d_, b)))
+                L.append(f"| {b:g} | {d_} | {N/1e6:.2f}M | {fmt_time(rc)} | {(LABEL[mb] + f' {tb:.1f}s') if mb else 'none'} | "
+                         f"{verdict(t_of(rc), tb)} | {fmt_time(best.get(('fa2', N, d_, b)))} | {verdict(t_of(rc), tf)} |")
     # 1. feasibility map + runtime
     for d_ in dirs:
         L.append(f"\n## Feasibility and runtime, {d_}\n\nCell = warm median time (peak allocated GiB); OOM / ERROR as recorded; '-' not run.\n")
@@ -65,8 +114,9 @@ def report(out_dir):
             for d_ in dirs:
                 for m in ORDER:
                     r = best.get((m, N, d_, b))
-                    if r and r["status"] == "ok" and m != "fa2":
-                        L.append(f"| {b:g} | {N/1e6:.2f}M | {d_} | {LABEL[m]} | {choices_str(r)} | {r['cold_s']:.1f} | {r['warm_s']:.1f} |")
+                    if r and m != "fa2" and (r["status"] == "ok" or r.get("choices")):
+                        c_ = f"{r['cold_s']:.1f}" if r.get("cold_s") else "-"; w_ = f"{r['warm_s']:.1f}" if r.get("warm_s") else r["status"].upper()
+                        L.append(f"| {b:g} | {N/1e6:.2f}M | {d_} | {LABEL[m]} | {choices_str(r)} | {c_} | {w_} |")
     # 3. data movement and phases
     L.append("\n## Data movement and phases\n\nBytes: 'counted' = transfers counted in the implementation; 'modelled' = from the plan (Stream-CQSA's engine is not byte-instrumented). Phases: summed device-stream durations (may overlap) and host merge time; wall time is the timing column above.\n")
     L.append("| budget | N | dir | method | H2D GiB | D2H GiB | kind | kernels | phases (s) |\n|---|---|---|---|---|---|---|---|---|")
@@ -91,11 +141,30 @@ def report(out_dir):
                         ge = r.get("err_grad_vs_ref")
                         L.append(f"| {b:g} | {N/1e6:.2f}M | {d_} | {LABEL[m]} | {r['err_fwd']:.1e} | " + (", ".join(f"{x:.1e}" for x in ge) if ge else "-") + f" | {r.get('grad_ref_method') or '-'} | {r.get('nan_inf')} | {r.get('budget_breached')} |")
     # 5. kernel-only reference
-    ko = [(k, r) for k, r in best.items() if k[0] == "fa2" and r.get("kernel_only_s")]
+    ko = [(k, r) for k, r in best.items() if k[0] == "fa2" and r.get("kernel_only_s") and not v1(r)]
     if ko:
-        L.append("\n## Resident FlashAttention-2 kernel-only reference (no transfers; not comparable to the transfer-inclusive rows)\n\n| budget | N | kernel-only s | transfer-inclusive s |\n|---|---|---|---|")
-        for (m, N, d_, b), r in sorted(ko, key=lambda kr: (kr[0][3], kr[0][1])):
-            L.append(f"| {b:g} | {N/1e6:.2f}M | {r['kernel_only_s']:.2f} | {r.get('warm_s') or r.get('cold_s'):.2f} |")
+        L.append("\n## Resident FlashAttention-2 kernel-only reference\n\nInputs already on the device, no transfers, measured after "
+                 "the timed runs (median of 3, or 1 when a call exceeds 60 s). A reference, not a competitor: never divide a "
+                 "transfer-inclusive time by it.\n\n| budget | dir | N | kernel-only s | transfer-inclusive s (warm) |\n|---|---|---|---|---|")
+        for (m, N, d_, b), r in sorted(ko, key=lambda kr: (kr[0][2], kr[0][3], kr[0][1])):
+            L.append(f"| {b:g} | {d_} | {N/1e6:.2f}M | {r['kernel_only_s']:.2f} | {r.get('warm_s') or r.get('cold_s'):.2f} |")
+    # 6. host memory (harness v2 rows)
+    hm = [(k, r) for k, r in best.items() if not v1(r) and r.get("host_rss_peak_gib")]
+    if hm:
+        L.append("\n## Host memory (harness v2 rows)\n\nPeak RSS per stage of the worker, GiB: input generation, cold timed run, "
+                 "correctness check (includes the memory-mapped gradient reference's resident file pages), warm timed runs; pinned = "
+                 "the rival's page-locked staging.\n\n| budget | dir | N | method | status | inputs | generation | cold run | check | warm runs | pinned |\n|---|---|---|---|---|---|---|---|---|---|---|")
+        f_ = lambda x: f"{x:.1f}" if x else "-"
+        for (m, N, d_, b), r in sorted(hm, key=lambda kr: (kr[0][2], kr[0][3], kr[0][1], ORDER.index(kr[0][0]))):
+            L.append(f"| {b:g} | {d_} | {N/1e6:.2f}M | {LABEL[m]} | {r['status']} | {f_(r.get('host_rss_inputs_gib'))} | {f_(r.get('host_rss_gen_peak_gib'))} | "
+                     f"{f_(r.get('host_rss_cold_run_gib'))} | {f_(r.get('host_rss_check_gib'))} | {f_(r.get('host_rss_warm_run_gib'))} | {f_(r.get('pinned_gib'))} |")
+    # 7. failures
+    bad = [(k, r) for k, r in best.items() if r["status"] != "ok" and not (k[0] == "fa2" and r["status"] == "oom")]
+    if bad:
+        L.append("\n## Failures other than FA-2 device OOM\n\n| budget | dir | N | method | status | where | plan / choices | error |\n|---|---|---|---|---|---|---|---|")
+        for (m, N, d_, b), r in sorted(bad, key=lambda kr: (kr[0][2], kr[0][3], kr[0][1])):
+            where = " <- ".join(reversed(r.get("error_where") or [])) or "-"
+            L.append(f"| {b:g} | {d_} | {N/1e6:.2f}M | {LABEL[m]} | {r['status']}{DAG if v1(r) else ''} | {where} | {choices_str(r) if r.get('choices') else '-'} | {(r.get('error') or '')[:140]} |")
     L.append("\n## Limitations\n\n* Kernels: the rivals run FlashAttention-2's forward/backward per tile; Stream-CQSA runs its own CQS-masked "
              "kernels (classic CUDA / wave / Triton as routed) and pays the quorum-set redundancy; FA-2 resident is the plain kernel. "
              "Precision is fp16 with fp32 accumulation for all.\n* A capped A100 80GB PCIe models a smaller capacity, not a smaller or "
