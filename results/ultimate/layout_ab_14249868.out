@@ -1,0 +1,111 @@
+/scratch/gpfs/AKEY/yb2807/VENVs/CQSA311/bin/python
+della-l07g7
+NVIDIA A100-SXM4-80GB, 210 MHz, 1410 MHz, 81920 MiB
+/scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/pkg/stream_cqsa/__init__.py 2.10.0+cu130
+{"torch_device": "NVIDIA A100-SXM4-80GB", "torch": "2.10.0+cu130", "node": "della-l07g7", "slurm_job": "14249868", "slurm_node": "della-l07g7", "cuda_module": "cqsa_cuda_next_v11", "nvidia_smi": "NVIDIA A100-SXM4-80GB, 210 MHz, 1410 MHz, 81920 MiB"}
+native wave ext: /scratch/gpfs/AKEY/yb2807/Stream-CQSA-dev/next/native/cqsa_native.cpython-311-x86_64-linux-gnu.so 
+/scratch/gpfs/AKEY/yb2807/VENVs/CQSA311/lib/python3.11/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+[a] N=131072 classic_align1 path=(0,) L= 56175 (L%128=111) v11 real    27.22  zero    23.36  sdpaF    18.45  real/sdpa 1.475  zero/sdpa 1.266  mixed 0.23% masked 22.2%
+[a] N=131072 classic_align1 path=(1,) L= 56174 (L%128=110) v11 real    27.22  zero    23.32  sdpaF    18.38  real/sdpa 1.481  zero/sdpa 1.269  mixed 0.23% masked 22.2%
+[a] N=131072 classic_align1 path=(2,) L= 56174 (L%128=110) v11 real    24.69  zero    23.38  sdpaF    18.38  real/sdpa 1.344  zero/sdpa 1.272  mixed 0.23% masked 22.2%
+[a] N=131072 classic_align1 path=(3,) L= 56173 (L%128=109) v11 real    24.61  zero    23.39  sdpaF    18.40  real/sdpa 1.337  zero/sdpa 1.271  mixed 0.23% masked 22.2%
+[a] N=131072 classic_align1 path=(4,) L= 56173 (L%128=109) v11 real    24.45  zero    23.31  sdpaF    18.40  real/sdpa 1.328  zero/sdpa 1.267  mixed 0.15% masked 22.2%
+[a] N=131072 classic_align1 path=(5,) L= 56173 (L%128=109) v11 real    24.54  zero    23.30  sdpaF    18.40  real/sdpa 1.334  zero/sdpa 1.266  mixed 0.15% masked 22.2%
+[a] N=131072 classic_align1 path=(6,) L= 56174 (L%128=110) v11 real    23.14  zero    23.37  sdpaF    18.38  real/sdpa 1.259  zero/sdpa 1.272  mixed 0.23% masked 22.2%
+[a] N=131072 aligned_128    path=(0,) L= 56320 (L%128=  0) v11 real    18.03  zero    22.74  sdpaF    18.05  real/sdpa 0.999  zero/sdpa 1.260  inplace    19.11  waveW1    18.13/   18.68  mixed 0.00% masked 22.2%
+[a] N=131072 aligned_128    path=(1,) L= 56192 (L%128=  0) v11 real    17.96  zero    22.66  sdpaF    17.93  real/sdpa 1.001  zero/sdpa 1.264  inplace    19.03  waveW1    18.05/   18.61  mixed 0.00% masked 22.2%
+[a] N=131072 aligned_128    path=(2,) L= 56064 (L%128=  0) v11 real    17.87  zero    22.62  sdpaF    17.86  real/sdpa 1.001  zero/sdpa 1.267  inplace    18.92  waveW1    17.99/   18.51  mixed 0.00% masked 22.3%
+[a] N=131072 aligned_128    path=(3,) L= 56064 (L%128=  0) v11 real    17.87  zero    22.60  sdpaF    17.86  real/sdpa 1.001  zero/sdpa 1.265  inplace    18.92  waveW1    17.99/   18.49  mixed 0.00% masked 22.3%
+[a] N=131072 aligned_128    path=(4,) L= 56192 (L%128=  0) v11 real    17.89  zero    22.65  sdpaF    17.93  real/sdpa 0.997  zero/sdpa 1.263  inplace    18.91  waveW1    17.99/   18.54  mixed 0.00% masked 22.3%
+[a] N=131072 aligned_128    path=(5,) L= 56192 (L%128=  0) v11 real    17.88  zero    22.64  sdpaF    17.93  real/sdpa 0.997  zero/sdpa 1.263  inplace    18.91  waveW1    18.00/   18.55  mixed 0.00% masked 22.3%
+[a] N=131072 aligned_128    path=(6,) L= 56192 (L%128=  0) v11 real    18.53  zero    22.67  sdpaF    17.93  real/sdpa 1.033  zero/sdpa 1.264  inplace    19.66  waveW1    18.64/   19.23  mixed 0.00% masked 22.3%
+[a] N=524288 classic_align1 path=(0,) L=224696 (L%128= 56) v11 real   300.85  zero   349.36  sdpaF   286.37  real/sdpa 1.051  zero/sdpa 1.220  mixed 0.06% masked 22.2%
+[a] N=524288 classic_align1 path=(1,) L=224695 (L%128= 55) v11 real   300.98  zero   348.82  sdpaF   287.93  real/sdpa 1.045  zero/sdpa 1.211  mixed 0.06% masked 22.2%
+[a] N=524288 classic_align1 path=(2,) L=224694 (L%128= 54) v11 real   300.44  zero   349.13  sdpaF   288.53  real/sdpa 1.041  zero/sdpa 1.210  mixed 0.06% masked 22.2%
+[a] N=524288 classic_align1 path=(3,) L=224694 (L%128= 54) v11 real   300.76  zero   351.07  sdpaF   288.53  real/sdpa 1.042  zero/sdpa 1.217  mixed 0.06% masked 22.2%
+[a] N=524288 classic_align1 path=(4,) L=224695 (L%128= 55) v11 real   301.66  zero   350.82  sdpaF   287.93  real/sdpa 1.048  zero/sdpa 1.218  mixed 0.04% masked 22.2%
+[a] N=524288 classic_align1 path=(5,) L=224695 (L%128= 55) v11 real   301.06  zero   351.42  sdpaF   287.93  real/sdpa 1.046  zero/sdpa 1.220  mixed 0.04% masked 22.2%
+[a] N=524288 classic_align1 path=(6,) L=224695 (L%128= 55) v11 real   282.07  zero   352.12  sdpaF   287.93  real/sdpa 0.980  zero/sdpa 1.223  mixed 0.06% masked 22.2%
+[a] N=524288 aligned_128    path=(0,) L=224768 (L%128=  0) v11 real   270.27  zero   345.86  sdpaF   286.07  real/sdpa 0.945  zero/sdpa 1.209  inplace   287.15  waveW1   272.17/  281.03  mixed 0.00% masked 22.2%
+[a] N=524288 aligned_128    path=(1,) L=224640 (L%128=  0) v11 real   269.78  zero   345.53  sdpaF   286.02  real/sdpa 0.943  zero/sdpa 1.208  inplace   286.57  waveW1   271.70/  280.36  mixed 0.00% masked 22.2%
+[a] N=524288 aligned_128    path=(2,) L=224640 (L%128=  0) v11 real   269.83  zero   345.56  sdpaF   286.02  real/sdpa 0.943  zero/sdpa 1.208  inplace   286.73  waveW1   271.49/  280.32  mixed 0.00% masked 22.2%
+[a] N=524288 aligned_128    path=(3,) L=224640 (L%128=  0) v11 real   269.90  zero   345.56  sdpaF   286.02  real/sdpa 0.944  zero/sdpa 1.208  inplace   286.72  waveW1   271.63/  280.68  mixed 0.00% masked 22.2%
+[a] N=524288 aligned_128    path=(4,) L=224768 (L%128=  0) v11 real   271.73  zero   346.06  sdpaF   286.07  real/sdpa 0.950  zero/sdpa 1.210  inplace   287.84  waveW1   273.11/  281.49  mixed 0.00% masked 22.2%
+[a] N=524288 aligned_128    path=(5,) L=224640 (L%128=  0) v11 real   271.38  zero   345.39  sdpaF   286.02  real/sdpa 0.949  zero/sdpa 1.208  inplace   287.71  waveW1   272.61/  281.28  mixed 0.00% masked 22.2%
+[a] N=524288 aligned_128    path=(6,) L=224768 (L%128=  0) v11 real   273.13  zero   345.89  sdpaF   286.07  real/sdpa 0.955  zero/sdpa 1.209  inplace   289.02  waveW1   274.70/  283.23  mixed 0.00% masked 22.2%
+[b] L= 14044: CUDA bwd real     6.31  zero     6.49  sdpaF bwd     3.26  real/sdpa 1.93  zero/sdpa 1.99  | fwd real    3.13 zero    2.04 sdpaF    1.44
+[b] L= 28088: CUDA bwd real    23.11  zero    24.71  sdpaF bwd    12.12  real/sdpa 1.91  zero/sdpa 2.04  | fwd real    8.15 zero    6.60 sdpaF    4.99
+[b] L= 56175: CUDA bwd real    88.83  zero    95.99  sdpaF bwd    47.12  real/sdpa 1.89  zero/sdpa 2.04  | fwd real   24.67 zero   23.33 sdpaF   18.53
+[c] c=73 N=131072 (73 tasks, L 16157-16162): sum v11 real 229.2  zero 188.6  sdpaF 136.4 ms  real/sdpa 1.68 zero/sdpa 1.38 real/zero 1.22  mixed 1.24%  mono sdpaF 96.3 ms  wave W=73 136.3/141.0 ms
+[c] c=7 N=16384 L=7023: v11 real 1.325 zero 0.754 sdpaF 0.468 ms  real/sdpa 2.83 zero/sdpa 1.61
+
+==================== LAYOUT A/B (forward, causal, fp16, H=8 D=64, c=7 itr=1; ms, median of 5) ====================
+FA-2 arm = torch SDPA with SDPBackend.FLASH_ATTENTION forced (flash_attn not installed). Kernels seen: ['void pytorch_flash::flash_fwd_kernel<Flash_fwd_kernel_traits<64, 128, 128, 4, false, false, cutlass::half_t, Flash_kernel_traits<64, 128, 128, 4, cutlass::half_t> >, false, true, false, false, false, true, false, false>(pytorch_flash::Flash_fwd_params)']
+      N          layout  path       L L%128 |  v11 real  v11 zero     sdpaF | real/F zero/F |  inplace   waveW1   waveIP | mixed% masked%
+ 131072  classic_align1     0   56175   111 |     27.22     23.36     18.45 |  1.475  1.266 |      nan      nan      nan |   0.23    22.2
+ 131072  classic_align1     1   56174   110 |     27.22     23.32     18.38 |  1.481  1.269 |      nan      nan      nan |   0.23    22.2
+ 131072  classic_align1     2   56174   110 |     24.69     23.38     18.38 |  1.344  1.272 |      nan      nan      nan |   0.23    22.2
+ 131072  classic_align1     3   56173   109 |     24.61     23.39     18.40 |  1.337  1.271 |      nan      nan      nan |   0.23    22.2
+ 131072  classic_align1     4   56173   109 |     24.45     23.31     18.40 |  1.328  1.267 |      nan      nan      nan |   0.15    22.2
+ 131072  classic_align1     5   56173   109 |     24.54     23.30     18.40 |  1.334  1.266 |      nan      nan      nan |   0.15    22.2
+ 131072  classic_align1     6   56174   110 |     23.14     23.37     18.38 |  1.259  1.272 |      nan      nan      nan |   0.23    22.2
+ 131072     aligned_128     0   56320     0 |     18.03     22.74     18.05 |  0.999  1.260 |    19.11    18.13    18.68 |   0.00    22.2
+ 131072     aligned_128     1   56192     0 |     17.96     22.66     17.93 |  1.001  1.264 |    19.03    18.05    18.61 |   0.00    22.2
+ 131072     aligned_128     2   56064     0 |     17.87     22.62     17.86 |  1.001  1.267 |    18.92    17.99    18.51 |   0.00    22.3
+ 131072     aligned_128     3   56064     0 |     17.87     22.60     17.86 |  1.001  1.265 |    18.92    17.99    18.49 |   0.00    22.3
+ 131072     aligned_128     4   56192     0 |     17.89     22.65     17.93 |  0.997  1.263 |    18.91    17.99    18.54 |   0.00    22.3
+ 131072     aligned_128     5   56192     0 |     17.88     22.64     17.93 |  0.997  1.263 |    18.91    18.00    18.55 |   0.00    22.3
+ 131072     aligned_128     6   56192     0 |     18.53     22.67     17.93 |  1.033  1.264 |    19.66    18.64    19.23 |   0.00    22.3
+ 524288  classic_align1     0  224696    56 |    300.85    349.36    286.37 |  1.051  1.220 |      nan      nan      nan |   0.06    22.2
+ 524288  classic_align1     1  224695    55 |    300.98    348.82    287.93 |  1.045  1.211 |      nan      nan      nan |   0.06    22.2
+ 524288  classic_align1     2  224694    54 |    300.44    349.13    288.53 |  1.041  1.210 |      nan      nan      nan |   0.06    22.2
+ 524288  classic_align1     3  224694    54 |    300.76    351.07    288.53 |  1.042  1.217 |      nan      nan      nan |   0.06    22.2
+ 524288  classic_align1     4  224695    55 |    301.66    350.82    287.93 |  1.048  1.218 |      nan      nan      nan |   0.04    22.2
+ 524288  classic_align1     5  224695    55 |    301.06    351.42    287.93 |  1.046  1.220 |      nan      nan      nan |   0.04    22.2
+ 524288  classic_align1     6  224695    55 |    282.07    352.12    287.93 |  0.980  1.223 |      nan      nan      nan |   0.06    22.2
+ 524288     aligned_128     0  224768     0 |    270.27    345.86    286.07 |  0.945  1.209 |   287.15   272.17   281.03 |   0.00    22.2
+ 524288     aligned_128     1  224640     0 |    269.78    345.53    286.02 |  0.943  1.208 |   286.57   271.70   280.36 |   0.00    22.2
+ 524288     aligned_128     2  224640     0 |    269.83    345.56    286.02 |  0.943  1.208 |   286.73   271.49   280.32 |   0.00    22.2
+ 524288     aligned_128     3  224640     0 |    269.90    345.56    286.02 |  0.944  1.208 |   286.72   271.63   280.68 |   0.00    22.2
+ 524288     aligned_128     4  224768     0 |    271.73    346.06    286.07 |  0.950  1.210 |   287.84   273.11   281.49 |   0.00    22.2
+ 524288     aligned_128     5  224640     0 |    271.38    345.39    286.02 |  0.949  1.208 |   287.71   272.61   281.28 |   0.00    22.2
+ 524288     aligned_128     6  224768     0 |    273.13    345.89    286.07 |  0.955  1.209 |   289.02   274.70   283.23 |   0.00    22.2
+
+-- per-(N, layout) means over the 7 tasks --
+  N= 131072  classic_align1: v11 real    25.12  zero    23.35  sdpaF    18.40  real/F 1.365  zero/F 1.269  mixed 0.21%
+  N= 131072     aligned_128: v11 real    18.00  zero    22.65  sdpaF    17.93  real/F 1.004  zero/F 1.264  mixed 0.00%  inplace    19.07  waveW1    18.11/   18.66
+  N= 524288  classic_align1: v11 real   298.26  zero   350.39  sdpaF   287.88  real/F 1.036  zero/F 1.217  mixed 0.05%
+  N= 524288     aligned_128: v11 real   270.86  zero   345.69  sdpaF   286.04  real/F 0.947  zero/F 1.209  mixed 0.00%  inplace   287.39  waveW1   272.49/  281.20
+
+-- bit-identity --
+  N=131072 classic_align1 path=[0]: {'fp64_check_gathered': {'rows': [18661, 18789], 'max_abs': 1.1649451913264483e-05, 'max_abs_ref': 0.05867002041106539}}
+  N=131072 classic_align1 path=[3]: {'fp64_check_gathered': {'rows': [18661, 18789], 'max_abs': 1.0923428361286902e-05, 'max_abs_ref': 0.05300660061924559}}
+  N=131072 aligned_128 path=[0]: {'fp64_check_gathered': {'rows': [18752, 18880], 'max_abs': 1.152858665303888e-05, 'max_abs_ref': 0.05544325621732091}, 'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=131072 aligned_128 path=[1]: {'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=131072 aligned_128 path=[2]: {'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=131072 aligned_128 path=[3]: {'fp64_check_gathered': {'rows': [18624, 18752], 'max_abs': 1.1947651293071557e-05, 'max_abs_ref': 0.059774639945207715}, 'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=131072 aligned_128 path=[4]: {'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=131072 aligned_128 path=[5]: {'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=131072 aligned_128 path=[6]: {'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=524288 classic_align1 path=[0]: {'fp64_check_gathered': {'rows': [74835, 74963], 'max_abs': 6.362747798123111e-06, 'max_abs_ref': 0.028538253399624482}}
+  N=524288 classic_align1 path=[3]: {'fp64_check_gathered': {'rows': [74834, 74962], 'max_abs': 7.250903545707316e-06, 'max_abs_ref': 0.02985381426501779}}
+  N=524288 aligned_128 path=[0]: {'fp64_check_gathered': {'rows': [74944, 75072], 'max_abs': 6.5094942432314395e-06, 'max_abs_ref': 0.02906713628239009}, 'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=524288 aligned_128 path=[1]: {'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=524288 aligned_128 path=[2]: {'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=524288 aligned_128 path=[3]: {'fp64_check_gathered': {'rows': [74816, 74944], 'max_abs': 6.767687045727139e-06, 'max_abs_ref': 0.02993058626354552}, 'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=524288 aligned_128 path=[4]: {'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=524288 aligned_128 path=[5]: {'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+  N=524288 aligned_128 path=[6]: {'maxdiff_inplace_vs_gathered': 0.0, 'maxdiff_wave_packed_vs_v11_gathered': 0.0, 'maxdiff_wave_inplace_vs_wave_packed': 0.0}
+
+==================== BACKWARD SPLIT (classic layout path (0,), causal; ms) ====================
+      L |  bwd real  bwd zero sdpaF bwd | real/F zero/F | dead-tile ms live slow ms | fwd real fwd zero    sdpaF
+  14044 |      6.31      6.49      3.26 |   1.93   1.99 |        -0.18         3.23 |     3.13     2.04     1.44   rerun maxdiff dq/dk/dv [0.0001220703125, 0.0, 0.0]
+  28088 |     23.11     24.71     12.12 |   1.91   2.04 |        -1.60        12.58 |     8.15     6.60     4.99   rerun maxdiff dq/dk/dv [6.103515625e-05, 0.0, 0.0]
+  56175 |     88.83     95.99     47.12 |   1.89   2.04 |        -7.16        48.87 |    24.67    23.33    18.53   rerun maxdiff dq/dk/dv [0.0001220703125, 0.0, 0.0]
+
+==================== SMALL L ====================
+c=73 N=131072: 73 tasks L 16157-16162; sum over tasks: v11 real 229.2  zero 188.6  sdpaF 136.4 ms; real/F 1.68  zero/F 1.38  real/zero 1.22; mixed 1.24% masked 9.6%; monolithic sdpaF at N: 96.3 ms; wave W=73 one launch packed/inplace 136.3/141.0 ms (S=16384)
+c=7 N=16384 L=7023: v11 real 1.325  zero 0.754  sdpaF 0.468 ms; real/F 2.83 zero/F 1.61; mixed 1.82% masked 21.8%
+
+wrote /scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2/results/ultimate/layout_ab.json  (126 s)
