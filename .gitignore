@@ -20,3 +20,6 @@ venv/
 outputs/
 *.log
 slurm-*.out
+
+# OOC-rivals fp64 gradient references (24 GB, regenerable by experiments/ooc_rivals/bench.py)
+results/ooc_rivals/grad_ref/

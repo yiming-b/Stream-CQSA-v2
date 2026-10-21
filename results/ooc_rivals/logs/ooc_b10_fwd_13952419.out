@@ -1,0 +1,24 @@
+NVIDIA A100 80GB PCIe, 81920 MiB
+               total        used        free      shared  buff/cache   available
+Mem:            1006          48         850           0         113         958
+8
+budget  10.0 GiB N=  262144 fwd fa2               : ok        1.13 s (cold 1.93) peak 1.26 GiB err 2.6e-05
+budget  10.0 GiB N=  262144 fwd rect_ooc          : ok        0.63 s (cold 1.78) peak 2.53 GiB err 2.6e-05
+budget  10.0 GiB N=  262144 fwd rect_ooc_adaptive : ok        0.63 s (cold 4.60) peak 1.59 GiB err 2.6e-05
+budget  10.0 GiB N=  262144 fwd cqsa_auto         : ok        0.61 s (cold 0.62) peak 1.01 GiB err 2.6e-05
+budget  10.0 GiB N=  524288 fwd fa2               : ok        4.37 s (cold 5.04) peak 2.52 GiB err 2.3e-05
+budget  10.0 GiB N=  524288 fwd rect_ooc          : ok        2.31 s (cold 3.80) peak 5.06 GiB err 2.3e-05
+budget  10.0 GiB N=  524288 fwd rect_ooc_adaptive : ok        2.08 s (cold 16.11) peak 2.02 GiB err 2.0e-05
+budget  10.0 GiB N=  524288 fwd cqsa_auto         : ok        2.23 s (cold 2.20) peak 2.02 GiB err 2.3e-05
+budget  10.0 GiB N= 1048576 fwd fa2               : ok       17.54 s (cold 18.01) peak 5.03 GiB err 2.5e-05
+budget  10.0 GiB N= 1048576 fwd rect_ooc          : ok        8.65 s (cold 10.86) peak 7.51 GiB err 2.4e-05
+budget  10.0 GiB N= 1048576 fwd rect_ooc_adaptive : ok        7.80 s (cold 32.80) peak 2.40 GiB err 1.5e-05
+budget  10.0 GiB N= 1048576 fwd cqsa_auto         : ok        8.59 s (cold 8.46) peak 4.03 GiB err 2.5e-05
+budget  10.0 GiB N= 2097152 fwd fa2               : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 64.00 MiB. GPU 0 has a total capacity of 79.
+budget  10.0 GiB N= 2097152 fwd rect_ooc          : ok       33.77 s (cold 35.64) peak 7.51 GiB err 2.1e-05
+budget  10.0 GiB N= 2097152 fwd rect_ooc_adaptive : ok       30.04 s (cold 54.90) peak 2.40 GiB err 1.1e-05
+budget  10.0 GiB N= 2097152 fwd cqsa_auto         : ok       41.80 s (cold 43.58) peak 3.51 GiB err 1.1e-05
+budget  10.0 GiB N= 4194304 fwd fa2               : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 4.00 GiB. GPU 0 has a total capacity of 79.2
+budget  10.0 GiB N= 4194304 fwd rect_ooc          : ok      132.03 s (cold 132.79) peak 7.51 GiB err 1.8e-05
+budget  10.0 GiB N= 4194304 fwd rect_ooc_adaptive : ok      119.97 s (cold 144.45) peak 2.40 GiB err 9.4e-06
+budget  10.0 GiB N= 4194304 fwd cqsa_auto         : ok      160.58 s (cold 162.14) peak 4.69 GiB err 1.1e-05

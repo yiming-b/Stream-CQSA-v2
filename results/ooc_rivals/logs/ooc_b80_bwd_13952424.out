@@ -1,0 +1,25 @@
+NVIDIA A100 80GB PCIe, 81920 MiB
+               total        used        free      shared  buff/cache   available
+Mem:            1006          26         914           0          70         980
+8
+budget  80.0 GiB N=  262144 bwd fa2               : ok        1.90 s (cold 3.19) peak 2.52 GiB err 2.6e-05
+budget  80.0 GiB N=  262144 bwd rect_ooc          : ok        2.07 s (cold 3.37) peak 3.02 GiB err 2.6e-05
+budget  80.0 GiB N=  262144 bwd rect_ooc_adaptive : ok        2.14 s (cold 11.44) peak 4.77 GiB err 2.6e-05
+budget  80.0 GiB N=  262144 bwd cqsa_auto         : ok        2.00 s (cold 2.23) peak 3.02 GiB err 2.6e-05
+budget  80.0 GiB N=  524288 bwd fa2               : ok        6.95 s (cold 7.60) peak 5.03 GiB err 2.3e-05
+budget  80.0 GiB N=  524288 bwd rect_ooc          : ok        7.29 s (cold 9.03) peak 6.03 GiB err 2.3e-05
+budget  80.0 GiB N=  524288 bwd rect_ooc_adaptive : ok        7.44 s (cold 41.40) peak 9.55 GiB err 2.3e-05
+budget  80.0 GiB N=  524288 bwd cqsa_auto         : ok        7.30 s (cold 7.45) peak 6.03 GiB err 2.3e-05
+budget  80.0 GiB N= 1048576 bwd fa2               : ok       26.80 s (cold 27.16) peak 10.06 GiB err 2.5e-05
+budget  80.0 GiB N= 1048576 bwd rect_ooc          : ok       27.42 s (cold 29.96) peak 12.06 GiB err 2.5e-05
+budget  80.0 GiB N= 1048576 bwd rect_ooc_adaptive : ok       27.51 s (cold 221.34) peak 11.25 GiB err 2.5e-05
+budget  80.0 GiB N= 1048576 bwd cqsa_auto         : ok       27.77 s (cold 27.70) peak 12.06 GiB err 2.5e-05
+budget  80.0 GiB N= 2097152 bwd fa2               : ok      105.26 s (cold 105.09) peak 20.13 GiB err 3.2e-05
+budget  80.0 GiB N= 2097152 bwd rect_ooc          : ok      106.38 s (cold 110.25) peak 24.12 GiB err 3.2e-05
+budget  80.0 GiB N= 2097152 bwd rect_ooc_adaptive : ok      105.28 s (cold 1025.69) peak 20.13 GiB err 2.5e-05
+budget  80.0 GiB N= 2097152 bwd cqsa_auto         : ok      108.73 s (cold 107.94) peak 24.13 GiB err 3.2e-05
+budget  80.0 GiB N= 4194304 bwd fa2               : ok      415.47 s (cold 415.05) peak 40.25 GiB err 4.5e-05
+budget  80.0 GiB N= 4194304 bwd rect_ooc          : error worker exited -9: 
+budget  80.0 GiB N= 4194304 bwd rect_ooc_adaptive : error worker exited -9: 
+budget  80.0 GiB N= 4194304 bwd cqsa_auto         : ok      429.91 s (cold 428.23) peak 48.25 GiB err 4.5e-05
+[2026-09-23T11:30:42.250] error: Detected 2 oom_kill events in StepId=13952424.batch. Some of the step tasks have been OOM Killed.

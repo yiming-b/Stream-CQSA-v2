@@ -1,0 +1,26 @@
+NVIDIA A100 80GB PCIe, 81920 MiB
+               total        used        free      shared  buff/cache   available
+Mem:            1006          44         861           0         106         962
+8
+src /scratch/gpfs/AKEY/yb2807/Stream-CQSA-snapshots/v2-f5ac946 kernels /scratch/gpfs/AKEY/yb2807/Stream-CQSA-snapshots/kernels-ooc-rivals-2026-09-23
+/scratch/gpfs/AKEY/yb2807/Stream-CQSA-snapshots/v2-f5ac946/stream_cqsa/__init__.py /scratch/gpfs/AKEY/yb2807/Stream-CQSA-snapshots/kernels-ooc-rivals-2026-09-23/cqsa_cuda_next_v11.cpython-311-x86_64-linux-gnu.so 2.8.3
+budget  10.0 GiB N=  262144 fwd fa2               : ok        0.60 s (cold 1.96) peak 1.02 GiB err 2.6e-05 rss 2.2 GiB (cold run 1.6, check 2.2, warm 1.9) kernel-only 0.46 s
+budget  10.0 GiB N=  524288 fwd fa2               : ok        2.25 s (cold 2.91) peak 2.02 GiB err 2.3e-05 rss 3.2 GiB (cold run 2.6, check 3.2, warm 2.9) kernel-only 1.95 s
+budget  10.0 GiB N= 1048576 fwd fa2               : ok        8.72 s (cold 9.27) peak 4.04 GiB err 2.5e-05 rss 5.4 GiB (cold run 4.6, check 5.2, warm 4.9) kernel-only 8.09 s
+budget  10.0 GiB N= 2097152 fwd fa2               : ok       34.50 s (cold 34.71) peak 8.07 GiB err 3.2e-05 rss 10.4 GiB (cold run 8.6, check 9.2, warm 8.9) kernel-only 33.38 s
+budget  10.0 GiB N= 4194304 fwd fa2               : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 4.00 GiB. GPU 0 has a total capacity of 79.27 GiB of which 70.86 GiB is free. Including non-PyTorch memo rss 20.4 GiB
+budget  20.0 GiB N=  262144 fwd fa2               : ok        0.60 s (cold 1.29) peak 1.02 GiB err 2.6e-05 rss 2.2 GiB (cold run 1.6, check 2.2, warm 1.9) kernel-only 0.46 s
+budget  20.0 GiB N=  524288 fwd fa2               : ok        2.27 s (cold 2.90) peak 2.02 GiB err 2.3e-05 rss 3.2 GiB (cold run 2.6, check 3.2, warm 2.9) kernel-only 1.95 s
+budget  20.0 GiB N= 1048576 fwd fa2               : ok        8.72 s (cold 9.30) peak 4.04 GiB err 2.5e-05 rss 5.4 GiB (cold run 4.6, check 5.2, warm 4.9) kernel-only 8.09 s
+budget  20.0 GiB N= 2097152 fwd fa2               : ok       34.38 s (cold 34.66) peak 8.07 GiB err 3.2e-05 rss 10.4 GiB (cold run 8.6, check 9.2, warm 8.9) kernel-only 33.37 s
+budget  20.0 GiB N= 4194304 fwd fa2               : ok      137.47 s (cold 136.44) peak 16.13 GiB err 4.5e-05 rss 20.4 GiB (cold run 16.6, check 17.2, warm 16.9) kernel-only 135.42 s
+budget  40.0 GiB N=  262144 fwd fa2               : ok        0.60 s (cold 1.30) peak 1.02 GiB err 2.6e-05 rss 2.2 GiB (cold run 1.6, check 2.2, warm 1.9) kernel-only 0.46 s
+budget  40.0 GiB N=  524288 fwd fa2               : ok        2.27 s (cold 2.91) peak 2.02 GiB err 2.3e-05 rss 3.2 GiB (cold run 2.6, check 3.2, warm 2.9) kernel-only 1.96 s
+budget  40.0 GiB N= 1048576 fwd fa2               : ok        8.77 s (cold 9.33) peak 4.04 GiB err 2.5e-05 rss 5.4 GiB (cold run 4.6, check 5.2, warm 4.9) kernel-only 8.12 s
+budget  40.0 GiB N= 2097152 fwd fa2               : ok       34.43 s (cold 34.84) peak 8.07 GiB err 3.2e-05 rss 10.4 GiB (cold run 8.6, check 9.2, warm 8.9) kernel-only 33.57 s
+budget  40.0 GiB N= 4194304 fwd fa2               : ok      137.95 s (cold 136.71) peak 16.13 GiB err 4.5e-05 rss 20.4 GiB (cold run 16.6, check 17.2, warm 16.9) kernel-only 135.19 s
+budget  80.0 GiB N=  262144 fwd fa2               : ok        0.61 s (cold 1.28) peak 1.02 GiB err 2.6e-05 rss 2.2 GiB (cold run 1.6, check 2.2, warm 1.9) kernel-only 0.46 s
+budget  80.0 GiB N=  524288 fwd fa2               : ok        2.27 s (cold 2.91) peak 2.02 GiB err 2.3e-05 rss 3.2 GiB (cold run 2.6, check 3.2, warm 2.9) kernel-only 1.94 s
+budget  80.0 GiB N= 1048576 fwd fa2               : ok        8.75 s (cold 9.33) peak 4.04 GiB err 2.5e-05 rss 5.4 GiB (cold run 4.6, check 5.2, warm 4.9) kernel-only 8.22 s
+budget  80.0 GiB N= 2097152 fwd fa2               : ok       34.98 s (cold 34.94) peak 8.07 GiB err 3.2e-05 rss 10.4 GiB (cold run 8.6, check 9.2, warm 8.9) kernel-only 33.73 s
+budget  80.0 GiB N= 4194304 fwd fa2               : ok      137.92 s (cold 137.40) peak 16.13 GiB err 4.5e-05 rss 20.4 GiB (cold run 16.6, check 17.2, warm 16.9) kernel-only 135.84 s

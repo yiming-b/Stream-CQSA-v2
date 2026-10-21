@@ -1,0 +1,25 @@
+NVIDIA A100 80GB PCIe, 81920 MiB
+               total        used        free      shared  buff/cache   available
+Mem:            1006          28         917           0          66         978
+8
+budget  40.0 GiB N=  262144 bwd fa2               : ok        1.88 s (cold 3.17) peak 2.52 GiB err 2.6e-05
+budget  40.0 GiB N=  262144 bwd rect_ooc          : ok        2.05 s (cold 3.37) peak 3.02 GiB err 2.6e-05
+budget  40.0 GiB N=  262144 bwd rect_ooc_adaptive : ok        2.13 s (cold 11.35) peak 4.77 GiB err 2.6e-05
+budget  40.0 GiB N=  262144 bwd cqsa_auto         : ok        1.99 s (cold 2.23) peak 3.02 GiB err 2.6e-05
+budget  40.0 GiB N=  524288 bwd fa2               : ok        6.94 s (cold 7.56) peak 5.03 GiB err 2.3e-05
+budget  40.0 GiB N=  524288 bwd rect_ooc          : ok        7.26 s (cold 9.04) peak 6.03 GiB err 2.3e-05
+budget  40.0 GiB N=  524288 bwd rect_ooc_adaptive : ok        7.35 s (cold 55.06) peak 5.43 GiB err 2.3e-05
+budget  40.0 GiB N=  524288 bwd cqsa_auto         : ok        7.24 s (cold 7.41) peak 6.03 GiB err 2.3e-05
+budget  40.0 GiB N= 1048576 bwd fa2               : ok       26.61 s (cold 27.05) peak 10.06 GiB err 2.5e-05
+budget  40.0 GiB N= 1048576 bwd rect_ooc          : ok       27.25 s (cold 29.83) peak 12.06 GiB err 2.5e-05
+budget  40.0 GiB N= 1048576 bwd rect_ooc_adaptive : ok       26.81 s (cold 249.99) peak 10.06 GiB err 2.1e-05
+budget  40.0 GiB N= 1048576 bwd cqsa_auto         : ok       27.50 s (cold 27.50) peak 12.06 GiB err 2.5e-05
+budget  40.0 GiB N= 2097152 bwd fa2               : ok      104.08 s (cold 104.37) peak 20.13 GiB err 3.2e-05
+budget  40.0 GiB N= 2097152 bwd rect_ooc          : ok      105.48 s (cold 109.80) peak 18.02 GiB err 3.2e-05
+budget  40.0 GiB N= 2097152 bwd rect_ooc_adaptive : ok      103.16 s (cold 639.50) peak 11.45 GiB err 1.8e-05
+budget  40.0 GiB N= 2097152 bwd cqsa_auto         : ok      107.67 s (cold 107.04) peak 24.13 GiB err 3.2e-05
+budget  40.0 GiB N= 4194304 bwd fa2               : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 8.00 GiB. GPU 0 has a total capacity of 79.2
+budget  40.0 GiB N= 4194304 bwd rect_ooc          : error worker exited -9: 
+budget  40.0 GiB N= 4194304 bwd rect_ooc_adaptive : error worker exited -9: 
+budget  40.0 GiB N= 4194304 bwd cqsa_auto         : error worker exited -9: /scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2/stream_cqsa/native_autograd.py:57: Runtim
+[2026-09-23T10:16:16.907] error: Detected 3 oom_kill events in StepId=13952422.batch. Some of the step tasks have been OOM Killed.

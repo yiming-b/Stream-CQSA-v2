@@ -1,0 +1,22 @@
+NVIDIA A100 80GB PCIe, 81920 MiB
+               total        used        free      shared  buff/cache   available
+Mem:            1006          31         852           0         127         975
+8
+src /scratch/gpfs/AKEY/yb2807/Stream-CQSA-snapshots/v2-f5ac946 kernels /scratch/gpfs/AKEY/yb2807/Stream-CQSA-snapshots/kernels-ooc-rivals-2026-09-23
+/scratch/gpfs/AKEY/yb2807/Stream-CQSA-snapshots/v2-f5ac946/stream_cqsa/__init__.py /scratch/gpfs/AKEY/yb2807/Stream-CQSA-snapshots/kernels-ooc-rivals-2026-09-23/cqsa_cuda_next_v11.cpython-311-x86_64-linux-gnu.so 2.8.3
+budget  10.0 GiB N= 4194304 bwd fa2               : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 4.00 GiB. GPU 0 has a total capacity of 79.27 GiB of which 70.86 GiB is free. Including non-PyTorch memo rss 24.4 GiB
+budget  10.0 GiB N= 4194304 bwd rect_ooc          : ok      411.84 s (cold 415.06) peak 4.51 GiB err 1.8e-05 rss 72.7 GiB (cold run 72.5, check 53.5, warm 72.7)
+budget  10.0 GiB N= 4194304 bwd rect_ooc_adaptive : ok      406.00 s (cold 449.78) peak 2.86 GiB err 8.6e-06 rss 68.1 GiB (cold run 67.9, check 49.0, warm 68.1)
+budget  10.0 GiB N= 4194304 bwd cqsa_auto         : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 8.00 GiB. GPU 0 has a total capacity of 79.27 GiB of which 70.76 GiB is free. Including non-PyTorch memo rss 36.9 GiB
+budget  20.0 GiB N= 4194304 bwd fa2               : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 4.00 GiB. GPU 0 has a total capacity of 79.27 GiB of which 62.73 GiB is free. Including non-PyTorch memo rss 24.4 GiB
+budget  20.0 GiB N= 4194304 bwd rect_ooc          : ok      413.26 s (cold 419.36) peak 9.02 GiB err 2.8e-05 rss 80.1 GiB (cold run 79.9, check 61.0, warm 80.1)
+budget  20.0 GiB N= 4194304 bwd rect_ooc_adaptive : ok      406.48 s (cold 585.52) peak 5.72 GiB err 1.0e-05 rss 70.4 GiB (cold run 70.2, check 51.2, warm 70.4)
+budget  20.0 GiB N= 4194304 bwd cqsa_auto         : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 8.00 GiB. GPU 0 has a total capacity of 79.27 GiB of which 62.74 GiB is free. Including non-PyTorch memo rss 72.2 GiB
+budget  40.0 GiB N= 4194304 bwd fa2               : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 8.00 GiB. GPU 0 has a total capacity of 79.27 GiB of which 46.60 GiB is free. Including non-PyTorch memo rss 24.4 GiB
+budget  40.0 GiB N= 4194304 bwd rect_ooc          : ok      412.99 s (cold 423.60) peak 18.03 GiB err 4.1e-05 rss 95.1 GiB (cold run 94.9, check 76.0, warm 95.1)
+budget  40.0 GiB N= 4194304 bwd rect_ooc_adaptive : ok      404.99 s (cold 1138.63) peak 11.45 GiB err 1.5e-05 rss 75.7 GiB (cold run 75.5, check 56.5, warm 75.7)
+budget  40.0 GiB N= 4194304 bwd cqsa_auto         : ok      735.48 s (cold 740.80) peak 16.01 GiB err 8.5e-06 rss 72.0 GiB (cold run 71.6, check 52.6, warm 72.0)
+budget  80.0 GiB N= 4194304 bwd fa2               : ok      413.17 s (cold 415.86) peak 40.26 GiB err 4.5e-05 rss 45.9 GiB (cold run 32.6, check 45.9, warm 32.9) kernel-only 406.75 s
+budget  80.0 GiB N= 4194304 bwd rect_ooc          : ok      413.89 s (cold 423.11) peak 36.05 GiB err 4.5e-05 rss 93.2 GiB (cold run 93.0, check 74.0, warm 93.2)
+budget  80.0 GiB N= 4194304 bwd rect_ooc_adaptive : ok      410.74 s (cold 2607.20) peak 22.90 GiB err 2.3e-05 rss 89.2 GiB (cold run 88.9, check 70.0, warm 89.2)
+budget  80.0 GiB N= 4194304 bwd cqsa_auto         : ok      435.50 s (cold 437.34) peak 44.26 GiB err 4.5e-05 rss 45.9 GiB (cold run 32.6, check 45.9, warm 32.9)

@@ -1,0 +1,24 @@
+NVIDIA A100 80GB PCIe, 81920 MiB
+               total        used        free      shared  buff/cache   available
+Mem:            1006          35         916           0          60         971
+8
+budget  40.0 GiB N=  262144 fwd fa2               : ok        1.11 s (cold 2.30) peak 1.26 GiB err 2.6e-05
+budget  40.0 GiB N=  262144 fwd rect_ooc          : ok        0.62 s (cold 1.81) peak 2.53 GiB err 2.6e-05
+budget  40.0 GiB N=  262144 fwd rect_ooc_adaptive : ok        0.63 s (cold 3.61) peak 3.03 GiB err 2.6e-05
+budget  40.0 GiB N=  262144 fwd cqsa_auto         : ok        0.60 s (cold 0.61) peak 1.01 GiB err 2.6e-05
+budget  40.0 GiB N=  524288 fwd fa2               : ok        4.26 s (cold 4.95) peak 2.52 GiB err 2.3e-05
+budget  40.0 GiB N=  524288 fwd rect_ooc          : ok        2.24 s (cold 3.73) peak 5.06 GiB err 2.3e-05
+budget  40.0 GiB N=  524288 fwd rect_ooc_adaptive : ok        2.27 s (cold 11.13) peak 6.06 GiB err 2.3e-05
+budget  40.0 GiB N=  524288 fwd cqsa_auto         : ok        2.21 s (cold 2.17) peak 2.02 GiB err 2.3e-05
+budget  40.0 GiB N= 1048576 fwd fa2               : ok       17.03 s (cold 17.47) peak 5.03 GiB err 2.5e-05
+budget  40.0 GiB N= 1048576 fwd rect_ooc          : ok        8.76 s (cold 10.89) peak 10.13 GiB err 2.5e-05
+budget  40.0 GiB N= 1048576 fwd rect_ooc_adaptive : ok        8.21 s (cold 59.80) peak 6.56 GiB err 2.1e-05
+budget  40.0 GiB N= 1048576 fwd cqsa_auto         : ok        8.45 s (cold 8.33) peak 4.03 GiB err 2.5e-05
+budget  40.0 GiB N= 2097152 fwd fa2               : ok       68.30 s (cold 68.29) peak 10.06 GiB err 3.2e-05
+budget  40.0 GiB N= 2097152 fwd rect_ooc          : ok       34.43 s (cold 37.92) peak 20.25 GiB err 3.2e-05
+budget  40.0 GiB N= 2097152 fwd rect_ooc_adaptive : ok       31.49 s (cold 261.32) peak 8.06 GiB err 1.8e-05
+budget  40.0 GiB N= 2097152 fwd cqsa_auto         : ok       33.11 s (cold 32.75) peak 8.06 GiB err 3.2e-05
+budget  40.0 GiB N= 4194304 fwd fa2               : ok      273.21 s (cold 272.01) peak 20.13 GiB err 4.5e-05
+budget  40.0 GiB N= 4194304 fwd rect_ooc          : ok      136.34 s (cold 141.83) peak 30.02 GiB err 4.1e-05
+budget  40.0 GiB N= 4194304 fwd rect_ooc_adaptive : ok      123.18 s (cold 544.50) peak 9.59 GiB err 1.5e-05
+budget  40.0 GiB N= 4194304 fwd cqsa_auto         : ok      131.36 s (cold 129.72) peak 16.13 GiB err 4.5e-05

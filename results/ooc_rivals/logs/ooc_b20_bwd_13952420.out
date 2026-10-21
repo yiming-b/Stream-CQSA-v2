@@ -1,0 +1,25 @@
+NVIDIA A100 80GB PCIe, 81920 MiB
+               total        used        free      shared  buff/cache   available
+Mem:            1006          91         864           0          55         914
+8
+budget  20.0 GiB N=  262144 bwd fa2               : ok        1.91 s (cold 3.12) peak 2.52 GiB err 2.6e-05
+budget  20.0 GiB N=  262144 bwd rect_ooc          : ok        2.08 s (cold 3.40) peak 3.02 GiB err 2.6e-05
+budget  20.0 GiB N=  262144 bwd rect_ooc_adaptive : ok        2.12 s (cold 14.96) peak 2.71 GiB err 2.6e-05
+budget  20.0 GiB N=  262144 bwd cqsa_auto         : ok        2.01 s (cold 2.27) peak 3.02 GiB err 2.6e-05
+budget  20.0 GiB N=  524288 bwd fa2               : ok        7.09 s (cold 7.71) peak 5.03 GiB err 2.3e-05
+budget  20.0 GiB N=  524288 bwd rect_ooc          : ok        7.41 s (cold 9.16) peak 6.03 GiB err 2.3e-05
+budget  20.0 GiB N=  524288 bwd rect_ooc_adaptive : ok        7.34 s (cold 63.79) peak 5.03 GiB err 2.1e-05
+budget  20.0 GiB N=  524288 bwd cqsa_auto         : ok        7.37 s (cold 7.53) peak 6.03 GiB err 2.3e-05
+budget  20.0 GiB N= 1048576 bwd fa2               : ok       27.30 s (cold 27.67) peak 10.06 GiB err 2.5e-05
+budget  20.0 GiB N= 1048576 bwd rect_ooc          : ok       28.12 s (cold 30.67) peak 9.01 GiB err 2.5e-05
+budget  20.0 GiB N= 1048576 bwd rect_ooc_adaptive : ok       27.27 s (cold 160.43) peak 5.72 GiB err 1.7e-05
+budget  20.0 GiB N= 1048576 bwd cqsa_auto         : ok       28.23 s (cold 28.08) peak 12.06 GiB err 2.5e-05
+budget  20.0 GiB N= 2097152 bwd fa2               : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 4.00 GiB. GPU 0 has a total capacity of 79.2
+budget  20.0 GiB N= 2097152 bwd rect_ooc          : ok      107.56 s (cold 111.83) peak 9.01 GiB err 2.9e-05
+budget  20.0 GiB N= 2097152 bwd rect_ooc_adaptive : ok      105.22 s (cold 285.84) peak 5.72 GiB err 1.3e-05
+budget  20.0 GiB N= 2097152 bwd cqsa_auto         : ok      177.73 s (cold 180.83) peak 8.00 GiB err 9.6e-06
+budget  20.0 GiB N= 4194304 bwd fa2               : oom   OutOfMemoryError: CUDA out of memory. Tried to allocate 4.00 GiB. GPU 0 has a total capacity of 79.2
+budget  20.0 GiB N= 4194304 bwd rect_ooc          : error worker exited -9: 
+budget  20.0 GiB N= 4194304 bwd rect_ooc_adaptive : error worker exited -9: 
+budget  20.0 GiB N= 4194304 bwd cqsa_auto         : error worker exited -9: /scratch/gpfs/AKEY/yb2807/Stream-CQSA-v2/stream_cqsa/native_autograd.py:57: Runtim
+[2026-09-23T10:05:01.105] error: Detected 3 oom_kill events in StepId=13952420.batch. Some of the step tasks have been OOM Killed.
