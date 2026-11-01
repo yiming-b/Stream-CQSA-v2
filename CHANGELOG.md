@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.2.4 (2026-11-01)
+
+* **Fix: `attention(..., c=C)` returned a wrong result for every pinned `C` other than 7** (v2.1.0-v2.2.3,
+  and the `patch_sdpa` / `patched_sdpa` routes with the same override). The override replaced `c` but kept
+  the plan's `interest_set` (`(0, 1, 3)`, c=7's), which is not a perfect difference set for any other `c`:
+  only about `7/C` of the chunk pairs were ever gathered into a subproblem, so the call was fast and the
+  output plausible but wrong (relative error 0.72 at c=31 to 1.78 at c=133 against SDPA, forward and
+  backward, every kernel). The automatic path (nothing pinned) and `c=` passed together with its matching
+  `interest_set=` were correct. Now a pinned `c` takes its own quorum set (`autoconfig.QUORUM_SETS`; an
+  unknown `c` without `interest_set=` is a `ValueError`), and the engine's task builders (`build_tasks`,
+  `refine_task`, hence the classic forward and backward, the wave engine and the OOM refinement) refuse any
+  `(c, interest_set)` that is not a perfect difference set (`stable_stream.check_quorum_set`) instead of
+  computing with it. `tests/test_quorum_sizes.py` runs every quorum size through `attention(c=)` against
+  SDPA, forward and backward, and checks the refusals. No kernel change: the v2.2.3 CUDA wheels' extensions
+  are the same code.
+
 ## v2.2.3 (2026-09-23)
 
 * One entry point: `stream_cqsa.attention` is documented as the function to use (README table, package

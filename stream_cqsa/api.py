@@ -404,6 +404,19 @@ def _run(q, k, v, p, *, is_causal, scale, direction, on_cuda, out_el, overrides,
                 q, k, v = (_pinned_copy(t) for t in (q, k, v))            # token-major: the engine streams it as is
             on_cuda = False
     kw.update(overrides)
+    # v2.2.4: a pinned c= carries its own quorum set. Before, `c` was overridden and `interest_set` kept the
+    # plan's (c=7's (0, 1, 3) whenever the plan was monolithic or c=7), which is not a perfect difference set
+    # for any other c: most chunk pairs were never attended and every pinned c != 7 returned a wrong result,
+    # fast and silently (relative error 0.7-1.8 against SDPA at c = 31..133).
+    if "c" in overrides and "interest_set" not in overrides:
+        from .autoconfig import QUORUM_SETS
+        try:
+            kw["interest_set"] = QUORUM_SETS[int(overrides["c"])]
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(f"c={overrides['c']!r} is not a known quorum size; pass interest_set= with its perfect "
+                             f"difference set (known: {sorted(QUORUM_SETS)})") from None
+    from .stable_stream import check_quorum_set
+    check_quorum_set(int(kw.get("c", 7)), kw.get("interest_set", (0, 1, 3)))
     bwd_itr = kw.pop("bwd_itr", "auto")          # depth of the backward: "auto" (planned on its own), "fwd", or an int
     if not kw.get("stream_from_host"):
         kw["shared_chunks"] = False

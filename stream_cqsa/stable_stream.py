@@ -385,6 +385,38 @@ def max_depth_for(N: int, c: int = 7) -> int:
     return k
 
 
+def check_quorum_set(c: int, interest_set: Sequence[int]) -> None:
+    """
+    Refuse a ``(c, interest_set)`` pair that is not a perfect difference set.
+
+    The decomposition is exact only when every pair of chunks ``(i, j)`` lands in
+    exactly one subproblem. With an interest set that does not match ``c`` the
+    differences it covers are a subset of the residues, so most chunk pairs are
+    never gathered and the engine returns a result with most of the attention
+    SKIPPED -- silently, fast, and with a plausible-looking output. That is what
+    ``attention(..., c=73)`` did in v2.1.0-v2.2.3: it pinned ``c`` and kept the
+    plan's ``(0, 1, 3)``. The engine entry points therefore validate the pair
+    before any task is built (v2.2.4).
+    """
+    c = int(c)
+    iset = tuple(int(x) for x in interest_set)
+    if len(set(iset)) == len(iset):
+        d = sorted((a - b) % c for a in iset for b in iset if a != b)
+        if d == list(range(1, c)):
+            return
+    from .autoconfig import QUORUM_SETS        # lazy: autoconfig imports this module
+    covered = {(a - b) % c for i, a in enumerate(iset) for j, b in enumerate(iset) if i != j}
+    missing = (c - 1) - len(covered & set(range(1, c)))
+    known = QUORUM_SETS.get(c)
+    hint = (f"the quorum set for c={c} is interest_set={known}" if known is not None
+            else f"the known quorum sets are c in {sorted(QUORUM_SETS)} (stream_cqsa.autoconfig.QUORUM_SETS)")
+    raise ValueError(
+        f"(c={c}, interest_set={iset}) is not a perfect difference set: {missing} of the {c - 1} non-zero "
+        f"residues mod {c} are not a difference of two members, so that many chunk-pair classes would never be "
+        f"attended and the result would be wrong. {hint}; a pinned c= takes its own set."
+    )
+
+
 def refine_task(
     task: "SubproblemTask",
     N: int,
@@ -414,6 +446,7 @@ def refine_task(
     the hybrid schedules of the paper: branches that fit stay coarse, and only
     those that failed are split.
     """
+    check_quorum_set(c, interest_set)
     kids: list[SubproblemTask] = []
     align = int(seg_align) if seg_align else 1
     for j in range(int(c)):
@@ -476,6 +509,7 @@ def build_tasks(
     members, which is what makes the off-diagonal chunk pairs covered exactly
     once. ``c = l^2 - l + 1`` for ``l = len(interest_set)``.
     """
+    check_quorum_set(c, interest_set)
     tasks: list[SubproblemTask] = []
     for path_idx, path in enumerate(all_paths(itr, c)):
         align = int(seg_align) if seg_align else 1
